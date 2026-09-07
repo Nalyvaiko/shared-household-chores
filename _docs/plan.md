@@ -1,4 +1,4 @@
-# Shared Household Chores — MVP Scope (Next.js-Optimized)
+# Shared Household Chores — MVP Scope
 
 ## Product Goal
 A simple tool for managing shared household chores for any combination of people: couples, families, roommates, or other groups.
