@@ -1,39 +1,29 @@
 # shared-household-chores
 
-A simple web app for managing shared household chores for any group — couples,
-families, roommates. In planning/setup: no application code yet.
+Web app for managing shared household chores. Not scaffolded yet.
 
-## Read these first
+## Rules
 
-- `_docs/plan.md` — MVP scope, product decisions, and the target tech stack.
-  Source of truth for what is in and out of scope.
-- `_docs/tasks.md` — the MVP backlog: 21 tasks, each sized for a single working
-  session and written to be picked up without reading the others. The numbering
-  is a suggested order, not a hard dependency chain.
+- Read `_docs/plan.md` (scope, decisions) before any planning work; it is the source of truth for what is in and out of scope.
+- Follow `process.md`: work one GitHub issue at a time; read its Acceptance criteria before starting and before closing.
+- `_docs/tasks.md` and the GitHub issues are one-to-one — keep them in sync when tasks change.
+- Branch off `main`; do not commit directly to `main`.
+- Keep planning docs in `_docs/`.
 
-## Target tech stack (decided in `_docs/plan.md`)
+## Stack (fixed in `_docs/plan.md`)
 
 - Next.js (App Router), Server Actions for all mutations
 - PostgreSQL + Prisma
-- Auth.js v5 Credentials provider + bcrypt (email/password; no password reset in MVP)
+- Auth.js v5 Credentials + bcrypt
 - Tailwind CSS + shadcn/ui
-- Deployed on Vercel
+- Vercel
+- No message queue, no Redis, no transactional email in the MVP
 
-The plan was deliberately trimmed so the whole app fits this stack: no message
-queue, no Redis, no transactional email in the MVP. "Overdue" is derived at read
-time; recurring chores roll over synchronously inside the completion transaction;
-invites are share links, not emails.
+## Commands
 
-## GitHub & tooling
+_None yet — add install / dev / test / lint / typecheck / build here after task 1._
 
-- Canonical repo: `Nalyvaiko/shared-household-chores` (public).
-- The task backlog in `_docs/tasks.md` is mirrored one-to-one as GitHub issues.
-  Keep the two in sync when tasks are added, split, or merged.
-- GitHub CLI is installed at `C:\Program Files\GitHub CLI\gh.exe`; it may not be
-  on PATH — call it by full path if `gh` is not found.
-- GitHub auth is over SSH as user `Nalyvaiko` (`~/.ssh/id_ed25519`).
+## Environment
 
-## Conventions
-
-- Branch off `main` for changes; do not commit directly to `main`.
-- Keep `_docs/` as the home for planning docs (scope, backlog, design notes).
+- Repo: `Nalyvaiko/shared-household-chores` (public). GitHub auth over SSH as `Nalyvaiko`.
+- `gh` CLI: `C:\Program Files\GitHub CLI\gh.exe` (may not be on PATH).
