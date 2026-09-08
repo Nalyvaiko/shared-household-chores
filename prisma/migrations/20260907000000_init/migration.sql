@@ -1,0 +1,4 @@
+-- This is an empty initial migration.
+--
+-- It exists so `prisma migrate deploy` has a baseline to apply against a fresh
+-- database. Domain models and their tables are added in task #4.

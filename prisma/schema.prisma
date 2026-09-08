@@ -1,0 +1,15 @@
+// Prisma schema for shared-household-chores.
+// Docs: https://www.prisma.io/docs
+//
+// No domain models live here yet — the full MVP data model and its migration
+// are task #4. This file only wires up the datasource and the client generator
+// so the app can talk to PostgreSQL.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}

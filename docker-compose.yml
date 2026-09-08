@@ -1,0 +1,21 @@
+# Local PostgreSQL for development. Start it with:
+#
+#   docker compose up -d
+#
+# Credentials and port match DATABASE_URL in .env.example.
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: chores
+      POSTGRES_PASSWORD: chores
+      POSTGRES_DB: chores
+    volumes:
+      - chores-db:/var/lib/postgresql/data
+
+volumes:
+  chores-db:
