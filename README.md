@@ -73,6 +73,26 @@ committed migrations without generating new ones.
 `prisma generate` runs automatically on `npm install` (via `postinstall`), so the
 `@prisma/client` types exist for `typecheck` and CI.
 
+### 4. Seed demo data
+
+```bash
+npm run db:seed          # prisma db seed — built-in categories + a demo household
+```
+
+This populates the database with the built-in category set and one demo
+household whose chores cover every state the app screens need (upcoming,
+overdue, completed, skipped, recurring, claim-mode, and fixed assignment). It is
+idempotent: re-running it changes nothing and exits 0. It is never run
+automatically — run it by hand after migrations when you want demo data.
+`npm run db:reset` also runs it once as part of recreating the database.
+
+The seed creates two demo users you can sign in as once auth is wired up:
+
+| Role   | Email               | Password           |
+| ------ | ------------------- | ------------------ |
+| Admin  | `admin@example.com` | `sparkle-otter-42` |
+| Member | `member@example.com`| `maple-badger-77`  |
+
 ### Shadow database
 
 `prisma migrate dev` needs a second, temporary "shadow" database to detect schema
@@ -96,6 +116,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm run typecheck` | Generate route types and run `tsc --noEmit`             |
 | `npm run db:migrate`| Create and apply migrations in development              |
 | `npm run db:reset`  | Drop, recreate, and re-apply all migrations            |
+| `npm run db:seed`   | Load built-in categories and a demo household (idempotent) |
 | `npm run db:studio` | Open Prisma Studio to browse the database              |
 
 ## Tests
