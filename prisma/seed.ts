@@ -17,6 +17,15 @@
  * `lib/db.ts` (that client is cached on `globalThis` for the Next.js runtime)
  * and it never calls the auth or password-hashing code — demo passwords are
  * seeded from pre-computed bcrypt hashes below.
+ *
+ * It runs on Node's built-in TypeScript support: `prisma.seed` is
+ * `node prisma/seed.ts`, no loader. The one project import goes through the
+ * `#lib/builtin-categories` subpath (see the `imports` map in package.json)
+ * rather than a relative path, because Node's ESM resolver needs an explicit
+ * `.ts` extension on a relative specifier while `tsc` rejects that extension
+ * unless `allowImportingTsExtensions` is set — and tsconfig.json is out of scope
+ * for this task. The subpath keeps the extension in package.json, where both
+ * resolvers are happy, and gives household creation (task #9) a stable alias.
  */
 import {
   AssignmentMode,
@@ -31,7 +40,7 @@ import {
 import {
   BUILTIN_CATEGORY_NAMES,
   type BuiltinCategoryName,
-} from "../lib/builtin-categories";
+} from "#lib/builtin-categories";
 
 const prisma = new PrismaClient();
 
