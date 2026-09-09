@@ -1,9 +1,8 @@
 // Prisma schema for shared-household-chores.
 // Docs: https://www.prisma.io/docs
 //
-// No domain models live here yet — the full MVP data model and its migration
-// are task #4. This file only wires up the datasource and the client generator
-// so the app can talk to PostgreSQL.
+// This file holds the full MVP data model (task #4). Scope and decisions:
+// _docs/plan.md. No application, query, or Server Action code lives here.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,4 +11,176 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships       Membership[]
+  choresCreated     Chore[]
+  choreAssignees    ChoreAssignee[]
+  completionRecords CompletionRecord[]
+  skipRecords       SkipRecord[]
+  invitesCreated    InviteToken[]
+}
+
+model Household {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  Membership[]
+  categories   Category[]
+  chores       Chore[]
+  inviteTokens InviteToken[]
+}
+
+model Membership {
+  id          String   @id @default(cuid())
+  userId      String
+  householdId String
+  role        Role
+  createdAt   DateTime @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, householdId])
+  @@index([householdId])
+}
+
+model Category {
+  id          String  @id @default(cuid())
+  householdId String
+  name        String
+  builtIn     Boolean @default(false)
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  chores    Chore[]
+
+  @@unique([householdId, name])
+}
+
+model Chore {
+  id             String              @id @default(cuid())
+  householdId    String
+  createdById    String
+  categoryId     String?
+  title          String
+  dueAt          DateTime?
+  priority       Priority
+  effort         Effort
+  status         ChoreStatus         @default(pending)
+  recurrence     RecurrenceFrequency @default(none)
+  assignmentMode AssignmentMode      @default(fixed)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  assignees        ChoreAssignee[]
+  completionRecord CompletionRecord?
+  skipRecord       SkipRecord?
+
+  @@index([householdId, status])
+  @@index([dueAt])
+  @@index([categoryId])
+  @@index([createdById])
+}
+
+model ChoreAssignee {
+  id      String @id @default(cuid())
+  choreId String
+  userId  String
+
+  chore Chore @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([choreId, userId])
+  @@index([userId])
+}
+
+model CompletionRecord {
+  id          String   @id @default(cuid())
+  choreId     String   @unique
+  userId      String
+  completedAt DateTime @default(now())
+
+  chore Chore @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+}
+
+model SkipRecord {
+  id        String   @id @default(cuid())
+  choreId   String   @unique
+  userId    String
+  reason    String
+  skippedAt DateTime @default(now())
+
+  chore Chore @relation(fields: [choreId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+}
+
+model InviteToken {
+  id          String    @id @default(cuid())
+  householdId String
+  createdById String
+  token       String    @unique
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  household Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  createdBy User      @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([householdId])
+  @@index([expiresAt])
+}
+
+enum Role {
+  admin
+  member
+}
+
+enum ChoreStatus {
+  pending
+  completed
+  skipped
+}
+
+enum Priority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum Effort {
+  small
+  medium
+  large
+}
+
+enum RecurrenceFrequency {
+  none
+  daily
+  weekly
+  monthly
+}
+
+enum AssignmentMode {
+  fixed
+  claim
 }
