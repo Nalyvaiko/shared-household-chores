@@ -20,13 +20,14 @@ function FieldErrors({ id, errors }: { id: string; errors?: string[] }) {
   );
 }
 
-export function SignupForm() {
+export function SignupForm({ callbackUrl }: { callbackUrl: string }) {
   const [state, action, pending] = useActionState(signup, initialState);
   const emailErrors = state.errors?.email;
   const passwordErrors = state.errors?.password;
 
   return (
     <form action={action} noValidate className="flex w-full max-w-sm flex-col gap-4">
+      <input type="hidden" name="callbackUrl" value={callbackUrl} />
       <div className="flex flex-col gap-2">
         <Label htmlFor="email">Email</Label>
         <Input

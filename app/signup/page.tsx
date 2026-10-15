@@ -1,12 +1,21 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { redirect } from "next/navigation";
 
+import { auth } from "@/auth";
 import { SignupForm } from "@/app/signup/signup-form";
+import { safeCallbackUrl, withCallbackUrl } from "@/lib/auth/callback-url";
 
 export const metadata: Metadata = {
   title: "Sign up · Shared Household Chores",
 };
 
-export default function SignupPage() {
+export default async function SignupPage({ searchParams }: PageProps<"/signup">) {
+  const callbackUrl = safeCallbackUrl((await searchParams).callbackUrl);
+
+  const session = await auth();
+  if (session?.user) redirect(callbackUrl);
+
   return (
     <section className="flex flex-col items-start gap-6">
       <div className="flex flex-col gap-2">
@@ -15,7 +24,16 @@ export default function SignupPage() {
           Sign up with your email to start sharing chores.
         </p>
       </div>
-      <SignupForm />
+      <SignupForm callbackUrl={callbackUrl} />
+      <p className="text-sm text-muted-foreground">
+        Already have an account?{" "}
+        <Link
+          href={withCallbackUrl("/signin", callbackUrl)}
+          className="font-medium text-foreground underline underline-offset-4"
+        >
+          Sign in
+        </Link>
+      </p>
     </section>
   );
 }
