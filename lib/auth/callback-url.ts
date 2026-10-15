@@ -1,7 +1,6 @@
 // Rejects whitespace, control characters (C0, DEL, C1) and backslashes
 // anywhere in the value. Browsers strip tabs and newlines from URLs and treat
 // `\` like `/`, so `/\t/evil.com` or `/\evil.com` would become `//evil.com`.
-// eslint-disable-next-line no-control-regex
 const UNSAFE_CHARACTERS = /[\s\u0000-\u001f\u007f-\u009f\\]/;
 
 /**
