@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// The page resolves the user through the real `getCurrentUser()` guard, so the
+// session and the database are mocked underneath it.
 const auth = vi.fn();
 vi.mock("@/auth", () => ({ auth }));
+
+const findUnique = vi.fn();
+vi.mock("@/lib/db", () => ({ db: { user: { findUnique } } }));
 
 // Like the real one, `redirect` throws so rendering stops.
 const redirect = vi.fn((url: string) => {
@@ -22,9 +27,11 @@ function render(callbackUrl?: string | string[]) {
 }
 
 const session = { user: { id: "user_1", email: "alice@example.com" }, expires: "2099-01-01" };
+const user = { id: "user_1", email: "alice@example.com", name: null };
 
 beforeEach(() => {
   auth.mockReset().mockResolvedValue(null);
+  findUnique.mockReset().mockResolvedValue(user);
   redirect.mockClear();
 });
 
@@ -43,6 +50,17 @@ describe("/signin page", () => {
 
   it("renders the form for a signed-out visitor", async () => {
     await expect(render("/invite/abc123")).resolves.toBeTruthy();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("renders the form when the session's user was deleted", async () => {
+    auth.mockResolvedValue(session);
+    findUnique.mockResolvedValue(null);
+
+    await expect(render("/invite/abc123")).resolves.toBeTruthy();
+    expect(findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "user_1" } }),
+    );
     expect(redirect).not.toHaveBeenCalled();
   });
 });
