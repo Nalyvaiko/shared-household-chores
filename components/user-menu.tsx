@@ -35,7 +35,7 @@ export function UserMenu({ email, signOutAction }: UserMenuProps) {
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="max-w-40 min-w-0 shrink sm:max-w-64"
+            className="max-w-30 min-w-0 shrink sm:max-w-64"
             aria-label={`Account menu for ${email}`}
           >
             <UserRound />
