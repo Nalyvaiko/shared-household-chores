@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { hash } from "bcryptjs";
 
 import { signIn } from "@/auth";
+import { safeCallbackUrl } from "@/lib/auth/callback-url";
 import {
   BCRYPT_COST,
   EMAIL_TAKEN_ERROR,
@@ -73,6 +74,8 @@ export async function signup(
   }
 
   // Throws a redirect on success, so it must stay outside any try/catch.
-  await signIn("credentials", { email, password, redirectTo: "/" });
+  // The hidden field comes from the client, so it is checked again here.
+  const redirectTo = safeCallbackUrl(formData.get("callbackUrl"));
+  await signIn("credentials", { email, password, redirectTo });
   return { email: enteredEmail };
 }

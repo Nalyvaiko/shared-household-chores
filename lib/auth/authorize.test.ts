@@ -68,4 +68,24 @@ describe("authorizeCredentials", () => {
     ).resolves.toBeNull();
     expect(findUnique).not.toHaveBeenCalled();
   });
+
+  it("returns null for a password over 72 bytes, even when its first 72 bytes match", async () => {
+    const password72 = "p".repeat(72);
+    findUnique.mockResolvedValue({ ...storedUser, passwordHash: hashSync(password72, 4) });
+
+    // bcrypt alone would accept this: it ignores everything after byte 72.
+    await expect(
+      authorizeCredentials({ email: "alice@example.com", password: password72 }),
+    ).resolves.toEqual({ id: "user_1", email: "alice@example.com", name: null });
+    findUnique.mockClear();
+
+    await expect(
+      authorizeCredentials({ email: "alice@example.com", password: `${password72}extra` }),
+    ).resolves.toBeNull();
+    // 36 x "é" is 72 bytes; one more character pushes it over.
+    await expect(
+      authorizeCredentials({ email: "alice@example.com", password: "é".repeat(37) }),
+    ).resolves.toBeNull();
+    expect(findUnique).not.toHaveBeenCalled();
+  });
 });

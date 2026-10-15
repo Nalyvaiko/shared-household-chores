@@ -70,6 +70,25 @@ describe("signup", () => {
     });
   });
 
+  it("redirects to a safe callbackUrl after signing in", async () => {
+    await submit({
+      email: "alice@example.com",
+      password: PASSWORD,
+      callbackUrl: "/invite/abc123",
+    });
+
+    expect(signIn.mock.calls[0][1].redirectTo).toBe("/invite/abc123");
+  });
+
+  it.each(["//evil.com", "https://evil.com", "/\\evil.com", "/\t/evil.com"])(
+    "never trusts the hidden callbackUrl %j",
+    async (callbackUrl) => {
+      await submit({ email: "alice@example.com", password: PASSWORD, callbackUrl });
+
+      expect(signIn.mock.calls[0][1].redirectTo).toBe("/");
+    },
+  );
+
   it("never returns the password in the form state", async () => {
     const state = await submit({ email: "alice@example.com", password: "Zq9!xY" });
 
