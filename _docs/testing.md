@@ -16,6 +16,15 @@
 - Keep tests deterministic and offline. Mock the session and database rather than
   hitting a real Postgres instance (see the auth-helper tasks in
   [`tasks.md`](tasks.md)).
+- Server-only modules (`lib/auth/guards.ts`) start with `import "server-only"`,
+  which throws outside a Next.js server build. `vitest.setup.ts` (listed in
+  `setupFiles`) mocks it for every test file with
+  `vi.mock("server-only", () => ({}))`, so tests that import such a module,
+  directly or through a page or the header, need no extra setup.
+- React `cache()` does not deduplicate calls under Vitest (it only caches inside
+  a server request), so do not assert that a cached function runs once.
+- `redirect()` from `next/navigation` throws. Mock it with a function that throws
+  too, and assert with `rejects.toThrow("NEXT_REDIRECT")` plus the target URL.
 
 ## Commands
 
