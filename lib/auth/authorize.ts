@@ -1,7 +1,11 @@
 import { compare } from "bcryptjs";
 
 import { db } from "@/lib/db";
-import { normalizeEmail } from "@/lib/auth/validation";
+import {
+  normalizeEmail,
+  PASSWORD_MAX_BYTES,
+  utf8ByteLength,
+} from "@/lib/auth/validation";
 
 export type AuthorizedUser = {
   id: string;
@@ -20,6 +24,9 @@ export async function authorizeCredentials(
   const password = credentials?.password;
   if (typeof email !== "string" || typeof password !== "string") return null;
   if (email.length === 0 || password.length === 0) return null;
+  // bcrypt compares only the first 72 bytes, so a longer password would match
+  // the stored hash of its own 72-byte prefix. Reject it before comparing.
+  if (utf8ByteLength(password) > PASSWORD_MAX_BYTES) return null;
 
   const user = await db.user.findUnique({
     where: { email: normalizeEmail(email) },

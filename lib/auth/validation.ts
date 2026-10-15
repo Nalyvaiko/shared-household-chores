@@ -39,3 +39,6 @@ export const signupSchema = z.object({
 });
 
 export type SignupInput = z.infer<typeof signupSchema>;
+
+/** The one message for every failed sign-in, so it never says which field was wrong. */
+export const INVALID_CREDENTIALS_ERROR = "Invalid email or password.";
