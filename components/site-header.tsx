@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-import { auth, signOut } from "@/auth";
+import { signOut } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/user-menu";
+import { getCurrentUser } from "@/lib/auth/guards";
 
 async function signOutAction() {
   "use server";
@@ -10,8 +11,9 @@ async function signOutAction() {
 }
 
 export async function SiteHeader() {
-  const session = await auth();
-  const user = session?.user;
+  // A session whose user was deleted resolves to `null`, so it shows the
+  // sign-in links. Only the email goes to the client menu.
+  const user = await getCurrentUser();
 
   return (
     <header className="border-b">
@@ -20,7 +22,7 @@ export async function SiteHeader() {
           Shared Household Chores
         </span>
         {user ? (
-          <UserMenu email={user.email ?? "Account"} signOutAction={signOutAction} />
+          <UserMenu email={user.email} signOutAction={signOutAction} />
         ) : (
           <nav aria-label="Account" className="flex shrink-0 items-center gap-2">
             <Button asChild variant="ghost" size="sm">

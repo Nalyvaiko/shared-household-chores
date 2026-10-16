@@ -24,7 +24,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body>
         <div className="flex min-h-dvh flex-col">
-          {/* Reads the session on the server with auth(); no SessionProvider. */}
+          {/* Reads the user on the server with getCurrentUser(); no SessionProvider. */}
           <SiteHeader />
           <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8">
             {children}

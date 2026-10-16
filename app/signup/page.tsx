@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { auth } from "@/auth";
 import { SignupForm } from "@/app/signup/signup-form";
 import { safeCallbackUrl, withCallbackUrl } from "@/lib/auth/callback-url";
+import { getCurrentUser } from "@/lib/auth/guards";
 
 export const metadata: Metadata = {
   title: "Sign up · Shared Household Chores",
@@ -13,8 +13,10 @@ export const metadata: Metadata = {
 export default async function SignupPage({ searchParams }: PageProps<"/signup">) {
   const callbackUrl = safeCallbackUrl((await searchParams).callbackUrl);
 
-  const session = await auth();
-  if (session?.user) redirect(callbackUrl);
+  // A session whose user was deleted counts as signed out, so a guarded page
+  // and this page cannot redirect each other in a loop.
+  const user = await getCurrentUser();
+  if (user) redirect(callbackUrl);
 
   return (
     <section className="flex flex-col items-start gap-6">
