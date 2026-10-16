@@ -30,6 +30,9 @@ const redirect = vi.fn((url: string) => {
 });
 vi.mock("next/navigation", () => ({ redirect }));
 
+const revalidatePath = vi.fn();
+vi.mock("next/cache", () => ({ revalidatePath }));
+
 const { createHousehold } = await import("./actions");
 
 const session = { user: { id: "user_1", email: "alice@example.com" }, expires: "2099-01-01" };
@@ -61,6 +64,7 @@ beforeEach(() => {
   tx.household.create.mockReset().mockResolvedValue({ id: "household_1" });
   tx.category.createMany.mockReset().mockResolvedValue({ count: 7 });
   redirect.mockClear();
+  revalidatePath.mockClear();
 });
 
 describe("createHousehold", () => {
@@ -84,6 +88,15 @@ describe("createHousehold", () => {
     );
     expect(redirect).toHaveBeenCalledTimes(1);
     expect(redirect).toHaveBeenCalledWith("/");
+  });
+
+  it("refreshes the root layout so the header shows the Members item", async () => {
+    await expect(submit({ name: "Home" })).rejects.toThrow("NEXT_REDIRECT /");
+
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(revalidatePath.mock.invocationCallOrder[0]).toBeLessThan(
+      redirect.mock.invocationCallOrder[0],
+    );
   });
 
   it("locks the user's row before re-checking the membership", async () => {
