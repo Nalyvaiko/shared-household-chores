@@ -68,7 +68,9 @@ export function InviteSection({ invite }: InviteSectionProps) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-2">
-        <Label htmlFor="invite-url">Invite link</Label>
+        <Label htmlFor="invite-url" className="sr-only">
+          Invite URL
+        </Label>
         <div className="flex gap-2">
           {/* Read-only, so the link can be selected and copied by hand without JavaScript. */}
           <Input
