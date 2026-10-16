@@ -1,6 +1,10 @@
 import { Button } from "@/components/ui/button";
+import { requireHousehold } from "@/lib/auth/guards";
 
-export default function Home() {
+export default async function Home() {
+  // Signed out goes to /signin; no household yet goes to /household/new.
+  await requireHousehold();
+
   return (
     <section className="flex flex-col items-start gap-4">
       <h1 className="text-2xl font-semibold tracking-tight">Chores</h1>

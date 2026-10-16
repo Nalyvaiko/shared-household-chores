@@ -96,6 +96,7 @@ Acceptance criteria:
 - The built-in categories are copied into the new household.
 - Users who already belong to a household are redirected away from the create page.
 - After creation the user lands on the chores screen.
+- `/` is guarded with `requireHousehold()`, so a signed-in user with no household is sent to `/household/new`.
 
 ## 10. Members and invites page
 Goal: An admin page to see household members and produce an invite link.
