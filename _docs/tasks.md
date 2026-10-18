@@ -110,12 +110,14 @@ Acceptance criteria:
 
 ## 11. Invite acceptance
 Goal: Opening a valid invite link adds the visitor to the household.
-Description: Add an `/invite/[token]` route that validates the token is known, unexpired, and unconsumed. A signed-in user without a household gets a new `member` membership and the token is marked consumed; a signed-out visitor is routed to sign up or sign in and returned to the link afterward. Show distinct messaging for expired, consumed, unknown, and already-in-a-household cases. A link replaced by "Regenerate link" (task #10) has its expiry set to the moment it was replaced, so it counts as expired.
+Description: Add an `/invite/[token]` route that validates the token is known, unexpired, and unconsumed. The page is read-only: opening it never writes, and joining happens only through its "Join household" button (a Server Action). The token's format is checked before any database lookup. A signed-in user without a household who presses "Join" gets a new `member` membership, the token is marked consumed, and they land on `/` with the header refreshed; a signed-out visitor is routed to sign up or sign in and returned to the link afterward. Show distinct messaging for expired, consumed, unknown, already-a-member-here, and already-in-a-household cases. A link replaced by "Regenerate link" (task #10) has its expiry set to the moment it was replaced, so it counts as expired.
 Acceptance criteria:
 - `/invite/[token]` validates that the token is known, unexpired, and unconsumed.
-- A signed-in user with no household is added as a `member` and the token is marked consumed.
+- Loading the page writes nothing; a membership is created only by the "Join household" button.
+- A malformed token shows the unknown message without any database lookup.
+- A signed-in user with no household who presses "Join" is added as a `member`, the token is marked consumed, and they are redirected to `/` with the header refreshed.
 - A signed-out visitor is routed to sign up / sign in and returned to the invite link afterward.
-- Expired, consumed, unknown, and already-in-a-household cases each show distinct messaging and add no membership.
+- Expired, consumed, unknown, already-a-member-here, and already-in-a-household cases each show distinct messaging and add no membership.
 - A link replaced by "Regenerate link" shows the expired message.
 
 ## 12. Category management
