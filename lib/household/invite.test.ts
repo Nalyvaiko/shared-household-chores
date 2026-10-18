@@ -4,7 +4,9 @@ import {
   activeInviteWhere,
   formatExpiry,
   generateInviteToken,
+  inviteStatus,
   inviteUrl,
+  isWellFormedInviteToken,
   resolveOrigin,
 } from "./invite";
 
@@ -93,5 +95,80 @@ describe("formatExpiry", () => {
 
   it("does not shift with the server's local timezone", () => {
     expect(formatExpiry(new Date("2026-12-31T23:30:00Z"))).toBe("31 Dec 2026, 23:30 UTC");
+  });
+});
+
+describe("isWellFormedInviteToken", () => {
+  it("accepts a generated token", () => {
+    expect(isWellFormedInviteToken(generateInviteToken())).toBe(true);
+    expect(isWellFormedInviteToken("A".repeat(20) + "_-" + "b9".repeat(10) + "z")).toBe(true);
+  });
+
+  it.each([
+    ["too short", "a".repeat(42)],
+    ["too long", "a".repeat(44)],
+    ["empty", ""],
+    ["padding", "a".repeat(42) + "="],
+    ["a plus sign", "a".repeat(42) + "+"],
+    ["a slash", "a".repeat(42) + "/"],
+    ["a dot", "a".repeat(42) + "."],
+    ["a percent", "a".repeat(42) + "%"],
+    ["a space", "a".repeat(42) + " "],
+    ["a trailing newline", "a".repeat(43) + "\n"],
+    ["a non-ASCII letter", "a".repeat(42) + "é"],
+  ])("rejects %s", (_label, value) => {
+    expect(isWellFormedInviteToken(value)).toBe(false);
+  });
+
+  it("rejects non-strings", () => {
+    expect(isWellFormedInviteToken(undefined)).toBe(false);
+    expect(isWellFormedInviteToken(null)).toBe(false);
+    expect(isWellFormedInviteToken(["a".repeat(43)])).toBe(false);
+  });
+});
+
+describe("inviteStatus", () => {
+  const now = new Date("2026-10-16T12:00:00Z");
+  const active = {
+    householdId: "household_1",
+    consumedAt: null,
+    expiresAt: new Date("2026-10-23T12:00:00Z"),
+  };
+
+  it("is unknown when there is no invite", () => {
+    expect(inviteStatus(null, null, now)).toBe("unknown");
+    expect(inviteStatus(null, "household_1", now)).toBe("unknown");
+  });
+
+  it("is member-here when the caller is in the invite's household, even if used or expired", () => {
+    expect(inviteStatus(active, "household_1", now)).toBe("member-here");
+    expect(inviteStatus({ ...active, consumedAt: now, expiresAt: now }, "household_1", now)).toBe(
+      "member-here",
+    );
+  });
+
+  it("is other-household when the caller is in a different household, even if used or expired", () => {
+    expect(inviteStatus(active, "household_2", now)).toBe("other-household");
+    expect(inviteStatus({ ...active, consumedAt: now, expiresAt: now }, "household_2", now)).toBe(
+      "other-household",
+    );
+  });
+
+  it("is used when consumedAt is set, even if also expired", () => {
+    expect(inviteStatus({ ...active, consumedAt: now }, null, now)).toBe("used");
+    expect(inviteStatus({ ...active, consumedAt: now, expiresAt: now }, null, now)).toBe("used");
+  });
+
+  it("is expired at or after expiresAt (a replaced link included)", () => {
+    expect(inviteStatus({ ...active, expiresAt: now }, null, now)).toBe("expired");
+    expect(inviteStatus({ ...active, expiresAt: new Date(now.getTime() - 1) }, null, now)).toBe(
+      "expired",
+    );
+  });
+
+  it("is valid when unused and expiring after now", () => {
+    expect(inviteStatus({ ...active, expiresAt: new Date(now.getTime() + 1) }, null, now)).toBe(
+      "valid",
+    );
   });
 });

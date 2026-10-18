@@ -13,6 +13,46 @@ export function generateInviteToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** What `generateInviteToken()` produces: exactly 43 base64url characters. */
+const INVITE_TOKEN_FORMAT = /^[A-Za-z0-9_-]{43}$/;
+
+/**
+ * Whether `value` has the shape of a generated invite token. Checked before
+ * any database lookup, so a malformed link never reaches the database.
+ */
+export function isWellFormedInviteToken(value: unknown): value is string {
+  return typeof value === "string" && INVITE_TOKEN_FORMAT.test(value);
+}
+
+/** What an invite link means for the person opening it. */
+export type InviteStatus =
+  | "unknown"
+  | "member-here"
+  | "other-household"
+  | "used"
+  | "expired"
+  | "valid";
+
+/**
+ * The status of an invite for a signed-in user, checked in this order:
+ * unknown, already a member of this household, in another household, used,
+ * expired, valid. `callerHouseholdId` is the household the user belongs to,
+ * or `null` when they have none. A replaced link has `expiresAt` set to the
+ * moment it was replaced, so it reads as expired.
+ */
+export function inviteStatus(
+  invite: { householdId: string; consumedAt: Date | null; expiresAt: Date } | null,
+  callerHouseholdId: string | null,
+  now: Date,
+): InviteStatus {
+  if (!invite) return "unknown";
+  if (callerHouseholdId === invite.householdId) return "member-here";
+  if (callerHouseholdId) return "other-household";
+  if (invite.consumedAt) return "used";
+  if (invite.expiresAt.getTime() <= now.getTime()) return "expired";
+  return "valid";
+}
+
 /**
  * Matches the household's active invites: not used yet and not expired. A
  * replaced link has `expiresAt` set to the moment it was replaced, so it is
