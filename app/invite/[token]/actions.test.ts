@@ -117,6 +117,49 @@ describe("joinHousehold", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
+  it("reads the clock after both locks, so a regenerate it waited on counts as expired", async () => {
+    // Time moves on while the transaction waits for each lock.
+    const AFTER_USER_LOCK = new Date("2026-10-16T12:00:01Z");
+    const AFTER_HOUSEHOLD_LOCK = new Date("2026-10-16T12:00:02Z");
+    tx.$queryRaw
+      .mockImplementationOnce(async () => {
+        vi.setSystemTime(AFTER_USER_LOCK);
+        return [{ id: "user_1" }];
+      })
+      .mockImplementationOnce(async () => {
+        vi.setSystemTime(AFTER_HOUSEHOLD_LOCK);
+        return [{ id: "household_1" }];
+      });
+
+    await expect(submit()).rejects.toThrow("NEXT_REDIRECT /");
+
+    expect(tx.inviteToken.updateMany).toHaveBeenCalledWith({
+      where: { token: TOKEN, consumedAt: null, expiresAt: { gt: AFTER_HOUSEHOLD_LOCK } },
+      data: { consumedAt: AFTER_HOUSEHOLD_LOCK },
+    });
+  });
+
+  it("reports expired for a link replaced while it waited for the household lock", async () => {
+    // A regenerate held the household lock and set expiresAt to its own time;
+    // the join's later clock makes the conditional update match nothing.
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: "user_1" }])
+      .mockImplementationOnce(async () => {
+        vi.setSystemTime(new Date("2026-10-16T12:00:00.005Z"));
+        return [{ id: "household_1" }];
+      });
+    tx.inviteToken.updateMany.mockImplementation(async ({ where }) => {
+      const replacedAt = new Date("2026-10-16T12:00:00.004Z");
+      return { count: replacedAt > where.expiresAt.gt ? 1 : 0 };
+    });
+    tx.inviteToken.findUnique
+      .mockResolvedValueOnce({ householdId: "household_1" })
+      .mockResolvedValueOnce({ consumedAt: null });
+
+    await expect(submit()).resolves.toEqual({ problem: "expired" });
+    expect(tx.membership.create).not.toHaveBeenCalled();
+  });
+
   it("takes the user from the session, never from the form", async () => {
     const data = form({ token: TOKEN, userId: "user_2", householdId: "household_2" });
 

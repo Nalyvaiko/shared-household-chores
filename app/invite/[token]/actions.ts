@@ -31,8 +31,6 @@ export async function joinHousehold(
   // Locks are taken User -> Household -> InviteToken. Regenerating a link
   // (task #10) takes Household -> InviteToken, so the two cannot deadlock.
   const outcome = await db.$transaction(async (tx) => {
-    const now = new Date();
-
     const invite = await tx.inviteToken.findUnique({
       where: { token },
       select: { householdId: true },
@@ -49,6 +47,13 @@ export async function joinHousehold(
     const lockedHousehold = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM "Household" WHERE id = ${invite.householdId} FOR UPDATE`;
     if (lockedHousehold.length === 0) return "unknown" as const;
+
+    // Read the clock only now that the locks are held. A regenerate that ran
+    // while this transaction waited has set the old link's `expiresAt` to its
+    // own JS `new Date()`, so a time taken before the wait would still see that
+    // link as active. This is the app clock, like regenerate's, not Postgres
+    // `now()` (which is fixed at transaction start).
+    const now = new Date();
 
     const existing = await tx.membership.findFirst({
       where: { userId: user.id },
