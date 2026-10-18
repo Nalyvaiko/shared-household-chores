@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useRef } from "react";
-import { LogOut, UserRound } from "lucide-react";
+import Link from "next/link";
+import { LogOut, UserRound, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,10 +17,12 @@ import {
 type UserMenuProps = {
   /** The signed-in user's email. The only session data sent to the client. */
   email: string;
+  /** Whether the user belongs to a household; shows the Members item. */
+  hasHousehold: boolean;
   signOutAction: () => Promise<void>;
 };
 
-export function UserMenu({ email, signOutAction }: UserMenuProps) {
+export function UserMenu({ email, hasHousehold, signOutAction }: UserMenuProps) {
   const formId = useId();
   const formRef = useRef<HTMLFormElement>(null);
 
@@ -48,6 +51,17 @@ export function UserMenu({ email, signOutAction }: UserMenuProps) {
             <span className="text-sm break-all">{email}</span>
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
+          {hasHousehold ? (
+            <>
+              <DropdownMenuItem asChild>
+                <Link href="/household/members">
+                  <Users />
+                  Members
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           <DropdownMenuItem
             onSelect={(event) => {
               // Keep the menu open until the sign-out redirect replaces it.

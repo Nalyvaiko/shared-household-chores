@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireUser } from "@/lib/auth/guards";
@@ -65,6 +66,9 @@ export async function createHousehold(
   });
 
   if (outcome === "user-deleted") redirect("/signin");
+  // The root layout's header shows a Members item only to users with a
+  // household; refresh it so it appears without a full reload.
+  revalidatePath("/", "layout");
   // Created now, or already in a household (an earlier submit or another tab).
   redirect("/");
 }

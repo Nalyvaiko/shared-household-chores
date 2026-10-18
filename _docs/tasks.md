@@ -100,21 +100,23 @@ Acceptance criteria:
 
 ## 10. Members and invites page
 Goal: An admin page to see household members and produce an invite link.
-Description: Build a page listing every membership in the caller's household with name, email, and role. Give admins an action that creates an `InviteToken` with a random opaque token and an expiry (e.g. 7 days) and shows the copyable invite URL, a way to regenerate it, and an action to remove a member (never the last admin or themselves). Non-admins can view the member list but not the invite or removal controls.
+Description: Build a page listing every membership in the caller's household with name, email, and role. Give admins an action that creates an `InviteToken` with a random opaque token and an expiry (e.g. 7 days) and shows the copyable invite URL, a way to regenerate it, and an action to remove a member after a confirmation step (never the last admin or themselves). Non-admins can view the member list but not the invite or removal controls. Signed-in household members reach the page from a "Members" item in the account menu.
 Acceptance criteria:
 - The page lists every membership in the caller's household with name, email, and role.
 - An admin can create an `InviteToken` (random token + expiry), see a copyable invite URL, and regenerate it.
-- An admin can remove a member, but not the last admin and not themselves through this control.
+- An admin can remove a member after confirming, but not the last admin and not themselves through this control.
 - Non-admins see the member list but not the invite or remove controls.
+- The account menu has a "Members" link for users who belong to a household.
 
 ## 11. Invite acceptance
 Goal: Opening a valid invite link adds the visitor to the household.
-Description: Add an `/invite/[token]` route that validates the token is known, unexpired, and unconsumed. A signed-in user without a household gets a new `member` membership and the token is marked consumed; a signed-out visitor is routed to sign up or sign in and returned to the link afterward. Show distinct messaging for expired, consumed, unknown, and already-in-a-household cases.
+Description: Add an `/invite/[token]` route that validates the token is known, unexpired, and unconsumed. A signed-in user without a household gets a new `member` membership and the token is marked consumed; a signed-out visitor is routed to sign up or sign in and returned to the link afterward. Show distinct messaging for expired, consumed, unknown, and already-in-a-household cases. A link replaced by "Regenerate link" (task #10) has its expiry set to the moment it was replaced, so it counts as expired.
 Acceptance criteria:
 - `/invite/[token]` validates that the token is known, unexpired, and unconsumed.
 - A signed-in user with no household is added as a `member` and the token is marked consumed.
 - A signed-out visitor is routed to sign up / sign in and returned to the invite link afterward.
 - Expired, consumed, unknown, and already-in-a-household cases each show distinct messaging and add no membership.
+- A link replaced by "Regenerate link" shows the expired message.
 
 ## 12. Category management
 Goal: A household can view its categories and add or remove custom ones.
