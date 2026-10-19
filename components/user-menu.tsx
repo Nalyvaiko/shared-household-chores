@@ -2,7 +2,7 @@
 
 import { useId, useRef } from "react";
 import Link from "next/link";
-import { LogOut, UserRound, Users } from "lucide-react";
+import { LogOut, Tags, UserRound, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -17,7 +17,7 @@ import {
 type UserMenuProps = {
   /** The signed-in user's email. The only session data sent to the client. */
   email: string;
-  /** Whether the user belongs to a household; shows the Members item. */
+  /** Whether the user belongs to a household; shows the Members and Categories items. */
   hasHousehold: boolean;
   signOutAction: () => Promise<void>;
 };
@@ -57,6 +57,12 @@ export function UserMenu({ email, hasHousehold, signOutAction }: UserMenuProps) 
                 <Link href="/household/members">
                   <Users />
                   Members
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/household/categories">
+                  <Tags />
+                  Categories
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
