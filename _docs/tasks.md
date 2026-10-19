@@ -122,12 +122,14 @@ Acceptance criteria:
 
 ## 12. Category management
 Goal: A household can view its categories and add or remove custom ones.
-Description: Build a categories page that lists the household's categories, marking built-in ones as non-deletable. Add Server Actions to create a custom category (unique name within the household) and delete a custom category, clearing that category on any chores that referenced it. Any member may manage categories.
+Description: Build a categories page that lists the household's categories, marking built-in ones as non-deletable. Add Server Actions to create a custom category (unique name within the household, ignoring case, built-ins included) and delete a custom category, clearing that category on any chores that referenced it. The delete action itself refuses built-in categories. Any member may manage categories. Signed-in household members reach the page from a "Categories" item in the account menu.
 Acceptance criteria:
 - The categories page lists the household's categories and marks built-ins as non-deletable.
-- A custom category can be created; a duplicate name within the household is rejected.
+- A custom category can be created; a name that matches any category in the household ignoring case, built-in or custom, is rejected.
 - Deleting a custom category clears it from any chores that referenced it.
+- The delete action refuses a built-in category, even from a hand-made request.
 - Any member, not only admins, can create and delete custom categories.
+- The account menu has a "Categories" link for users who belong to a household.
 
 ## 13. Create a chore — core fields
 Goal: A member can create a basic chore from a form.
