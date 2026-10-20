@@ -110,6 +110,11 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
           type="datetime-local"
           defaultValue={values.dueAtLocal}
           onChange={syncDueAt}
+          // Typing only part of a date leaves the value "" and fires no change
+          // event, yet sets validity.badInput; these catch that case before
+          // the submit click or Enter.
+          onKeyUp={syncDueAt}
+          onBlur={syncDueAt}
           {...invalidProps("dueAt-error", errors?.dueAt)}
         />
         {/* The UTC instant the local time means in this browser's zone. */}

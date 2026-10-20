@@ -56,6 +56,20 @@ describe("ChoreForm due date", () => {
     expect(input("dueAt").value).toBe("");
   });
 
+  it.each(["keyup", "focusout"])(
+    "writes the invalid marker for a half-typed date on %s, which fires no change event",
+    (eventType) => {
+      const local = input("dueAtLocal");
+      // A half-filled datetime-local reads as "" but reports bad input.
+      Object.defineProperty(local, "validity", { value: { badInput: true }, configurable: true });
+
+      act(() => {
+        local.dispatchEvent(new Event(eventType, { bubbles: true }));
+      });
+      expect(input("dueAt").value).toBe("invalid");
+    },
+  );
+
   it("recomputes the hidden UTC field from the echoed local value after a refusal", async () => {
     let submitted: FormData | undefined;
     createChore.mockImplementation(async (_prev, formData) => {
