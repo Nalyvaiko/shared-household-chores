@@ -23,6 +23,13 @@ describe("localToUtcIso", () => {
     expect(localToUtcIso("2026-03-10T09:30", true)).toBe("invalid");
   });
 
+  it("still converts the six-digit years datetime-local allows, for the server's range check", () => {
+    const expected = new Date(2026, 2, 10, 9, 30);
+    expected.setFullYear(100000);
+    expect(localToUtcIso("100000-03-10T09:30")).toBe(expected.toISOString());
+    expect(localToUtcIso("100000-03-10T09:30")).toMatch(/^\+100000-/);
+  });
+
   it("gives the invalid marker for a value Date can't read", () => {
     expect(localToUtcIso("not a date")).toBe("invalid");
   });
