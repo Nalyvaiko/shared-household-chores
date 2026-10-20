@@ -133,12 +133,13 @@ Acceptance criteria:
 
 ## 13. Create a chore — core fields
 Goal: A member can create a basic chore from a form.
-Description: Build the `/chores/new` form with title, optional due date and time, priority (Low/Medium/High/Urgent), effort (Small/Medium/Large), and category chosen from the household's categories. The Server Action validates input and creates a `pending` `Chore` with assignment mode defaulting to fixed and no assignees, then redirects to the chore list. Recurrence and assignment options are added by a separate task.
+Description: Build the `/chores/new` form with title, optional due date and time, priority (Low/Medium/High/Urgent), effort (Small/Medium/Large), and category chosen from the household's categories. The "New chore" button on `/` links to it. The browser converts the due date from the viewer's local time to a UTC instant before submitting; past due dates are allowed. The Server Action validates input and creates a `pending` `Chore` with assignment mode defaulting to fixed and no assignees, then redirects to `/chores`. Until task 15 replaces it, `/chores` is a placeholder that lists the household's chore titles. Recurrence and assignment options are added by a separate task.
 Acceptance criteria:
 - `/chores/new` has fields for title, optional due date and time, priority, effort, and category from the household's categories.
+- The due date is converted to UTC in the browser and stored as the instant the viewer meant; past due dates are accepted.
 - The Server Action validates input and creates a `pending` chore with assignment mode fixed and no assignees.
 - Invalid input is rejected with visible messages.
-- A successful create redirects to the chore list.
+- A successful create redirects to `/chores`, a placeholder list of the household's chore titles that task 15 replaces.
 
 ## 14. Chore form — recurrence and assignment
 Goal: The new-chore form also captures recurrence and how the chore is assigned.
