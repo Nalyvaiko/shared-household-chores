@@ -84,6 +84,10 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
     syncHiddenDueAt(localRef.current, utcRef.current);
   }, [state]);
 
+  // React ignores a <select>'s defaultValue after mount, so the form reset that
+  // follows each action would put the selects back to their first defaults.
+  // Each select is keyed on its echoed value: it remounts with the new default
+  // whenever that value changes, and otherwise its default already matches.
   return (
     <form action={action} noValidate className="flex w-full max-w-md flex-col gap-5">
       <div className="flex flex-col gap-2">
@@ -125,6 +129,7 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
       <div className="flex flex-col gap-2">
         <Label htmlFor="priority">Priority</Label>
         <select
+          key={values.priority}
           id="priority"
           name="priority"
           className={selectClassName}
@@ -143,6 +148,7 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
       <div className="flex flex-col gap-2">
         <Label htmlFor="effort">Effort</Label>
         <select
+          key={values.effort}
           id="effort"
           name="effort"
           className={selectClassName}
@@ -161,6 +167,7 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
       <div className="flex flex-col gap-2">
         <Label htmlFor="categoryId">Category</Label>
         <select
+          key={values.categoryId}
           id="categoryId"
           name="categoryId"
           className={selectClassName}

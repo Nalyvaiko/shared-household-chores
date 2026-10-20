@@ -97,6 +97,59 @@ describe("ChoreForm due date", () => {
     expect(input("dueAt").value).toBe(new Date(2026, 2, 10, 9, 30).toISOString());
   });
 
+  it("keeps non-default priority, effort and category choices after a refusal, twice in a row", async () => {
+    const echoed = {
+      title: "",
+      dueAtLocal: "",
+      priority: "high",
+      effort: "large",
+      categoryId: "cat_kitchen",
+    };
+    createChore.mockResolvedValue({ values: echoed, errors: { title: ["Enter a chore title."] } });
+    const select = (name: string) =>
+      container.querySelector<HTMLSelectElement>(`select[name="${name}"]`)!;
+
+    act(() => {
+      select("priority").value = "high";
+      select("effort").value = "large";
+      select("categoryId").value = "cat_kitchen";
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await act(async () => {
+        container.querySelector("form")!.requestSubmit();
+      });
+
+      expect(select("priority").value).toBe("high");
+      expect(select("effort").value).toBe("large");
+      expect(select("categoryId").value).toBe("cat_kitchen");
+    }
+    // What the next submit sends.
+    const sent = new FormData(container.querySelector("form")!);
+    expect([sent.get("priority"), sent.get("effort"), sent.get("categoryId")]).toEqual([
+      "high",
+      "large",
+      "cat_kitchen",
+    ]);
+  });
+
+  it("selects None again when the chosen category was refused", async () => {
+    createChore.mockResolvedValue({
+      values: { title: "Bins", dueAtLocal: "", priority: "high", effort: "medium", categoryId: "" },
+      errors: { categoryId: ["That category no longer exists. Choose another one."] },
+    });
+    const category = container.querySelector<HTMLSelectElement>("select[name=categoryId]")!;
+    act(() => {
+      category.value = "cat_kitchen";
+    });
+
+    await act(async () => {
+      container.querySelector("form")!.requestSubmit();
+    });
+
+    expect(container.querySelector<HTMLSelectElement>("select[name=categoryId]")!.value).toBe("");
+    expect(container.querySelector<HTMLSelectElement>("select[name=priority]")!.value).toBe("high");
+  });
+
   it("marks each refused field and shows its message next to it", async () => {
     createChore.mockResolvedValue({
       values: {
