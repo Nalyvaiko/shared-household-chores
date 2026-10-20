@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { Button } from "@/components/ui/button";
 import { requireHousehold } from "@/lib/auth/guards";
 
@@ -11,7 +13,9 @@ export default async function Home() {
       <p className="text-muted-foreground">
         Your household&rsquo;s chores will show up here.
       </p>
-      <Button disabled>New chore</Button>
+      <Button asChild>
+        <Link href="/chores/new">New chore</Link>
+      </Button>
     </section>
   );
 }

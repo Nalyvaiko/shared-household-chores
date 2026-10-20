@@ -1,3 +1,4 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The page resolves the household through the real `requireHousehold()` guard,
@@ -61,5 +62,12 @@ describe("/ page", () => {
   it("renders the placeholder for a user with a household", async () => {
     await expect(Home()).resolves.toBeTruthy();
     expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("links the New chore button to /chores/new", async () => {
+    const html = renderToStaticMarkup(await Home());
+
+    expect(html).toMatch(/<a[^>]*href="\/chores\/new"[^>]*>New chore<\/a>/);
+    expect(html).not.toMatch(/<button[^>]*disabled/);
   });
 });
