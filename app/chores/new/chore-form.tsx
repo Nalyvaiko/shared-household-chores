@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { localToUtcIso } from "@/lib/chore/due-date";
+import { DUE_AT_LOCAL_MAX, DUE_AT_LOCAL_MIN, localToUtcIso } from "@/lib/chore/due-date";
 import { cn } from "@/lib/utils";
 
 export type CategoryOption = { id: string; name: string };
@@ -112,6 +112,8 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
           id="dueAtLocal"
           name="dueAtLocal"
           type="datetime-local"
+          min={DUE_AT_LOCAL_MIN}
+          max={DUE_AT_LOCAL_MAX}
           defaultValue={values.dueAtLocal}
           onChange={syncDueAt}
           // Typing only part of a date leaves the value "" and fires no change

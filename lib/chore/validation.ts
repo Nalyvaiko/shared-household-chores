@@ -1,5 +1,6 @@
 import * as z from "zod";
 
+import { DUE_AT_OUT_OF_RANGE_MARKER } from "@/lib/chore/due-date";
 import { codePointLength } from "@/lib/household/validation";
 
 // Counted in Unicode code points, not UTF-16 units, so an emoji is one
@@ -64,7 +65,7 @@ export type DueAtResult =
 
 /**
  * Reads the due date from the form's two fields. `dueAt` is the UTC instant
- * the browser computed (or "invalid"); `dueAtLocal` is the visible input,
+ * the browser computed (or "invalid" / "out-of-range"); `dueAtLocal` is the visible input,
  * used only to tell whether a date was typed. The server never guesses a zone.
  */
 export function parseDueAt(dueAt: string, dueAtLocal: string): DueAtResult {
@@ -73,6 +74,9 @@ export function parseDueAt(dueAt: string, dueAtLocal: string): DueAtResult {
     // A date was typed but the browser sent no UTC value (no JavaScript yet).
     return { success: false, error: DUE_AT_TIME_ZONE_ERROR };
   }
+
+  // The browser decided from the year alone that no zone puts it in range.
+  if (dueAt === DUE_AT_OUT_OF_RANGE_MARKER) return { success: false, error: DUE_AT_RANGE_ERROR };
 
   const wellFormed = utcInstantSchema.safeParse(dueAt).success || EXPANDED_YEAR_ISO.test(dueAt);
   const instant = new Date(dueAt);
