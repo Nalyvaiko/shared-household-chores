@@ -84,10 +84,9 @@ function invalidProps(id: string, errors?: string[]) {
     : {};
 }
 
-/** Keeps the hidden UTC field in step with the visible local one. */
-function syncHiddenDueAt(local: HTMLInputElement | null, utc: HTMLInputElement | null) {
-  if (!local || !utc) return;
-  utc.value = localToUtcIso(local.value, local.validity.badInput);
+/** The UTC value for the visible local field, or null before it mounts. */
+function utcFor(local: HTMLInputElement | null): string | null {
+  return local ? localToUtcIso(local.value, local.validity.badInput) : null;
 }
 
 export function ChoreForm({
@@ -114,16 +113,23 @@ export function ChoreForm({
     setMode(state.values.assignmentMode);
   }
   const localRef = useRef<HTMLInputElement>(null);
-  const utcRef = useRef<HTMLInputElement>(null);
 
-  const syncDueAt = () => syncHiddenDueAt(localRef.current, utcRef.current);
+  // The hidden UTC field is controlled by this state. A hidden input's value is
+  // its `value` attribute, so with `defaultValue=""` every re-render (a mode or
+  // tick change) would write "" back over a value set on the DOM node.
+  const [dueAtUtc, setDueAtUtc] = useState("");
+  const syncDueAt = () => {
+    const utc = utcFor(localRef.current);
+    if (utc !== null) setDueAtUtc(utc);
+  };
 
   // On mount (a date typed before hydration is converted too) and after every
   // action result: React resets the form to the echoed values then, and the
   // echoed local time needs its UTC value again so a resubmit without touching
   // the date saves the same instant.
   useEffect(() => {
-    syncHiddenDueAt(localRef.current, utcRef.current);
+    const utc = utcFor(localRef.current);
+    if (utc !== null) setDueAtUtc(utc);
   }, [state]);
 
   // React ignores a <select>'s defaultValue after mount, so the form reset that
@@ -166,7 +172,7 @@ export function ChoreForm({
           {...invalidProps("dueAt-error", errors?.dueAt)}
         />
         {/* The UTC instant the local time means in this browser's zone. */}
-        <input ref={utcRef} type="hidden" name="dueAt" defaultValue="" />
+        <input type="hidden" name="dueAt" value={dueAtUtc} />
         <FieldErrors id="dueAt-error" errors={errors?.dueAt} />
       </div>
 

@@ -19,6 +19,16 @@ let root: Root;
 /** The defaults for the fields a test doesn't care about. */
 const unassigned = { recurrence: "none", assignmentMode: "fixed", assigneeIds: [] as string[] };
 
+/** The new-chore defaults, as the action echoes them. */
+const NEW_VALUES = {
+  title: "",
+  dueAtLocal: "",
+  priority: "medium",
+  effort: "medium",
+  categoryId: "",
+  ...unassigned,
+};
+
 // In members page order.
 const members = [
   { userId: "user_1", name: "Alice", email: "alice@example.com", isSelf: true },
@@ -360,6 +370,88 @@ describe("ChoreForm recurrence and assignment", () => {
     expect(ticked()).toEqual(["user_1"]);
     expect(assignees().getAttribute("aria-invalid")).toBe("true");
     expect(assignees().querySelector("#assigneeIds-error")?.textContent).toBe(message);
+  });
+
+  it("keeps the converted due date when the mode is toggled both ways, several times", async () => {
+    let submitted: FormData | undefined;
+    createChore.mockImplementation(async (_prev, formData) => {
+      submitted = formData;
+      return { values: { ...NEW_VALUES, title: "Bins" }, errors: { title: ["Enter a chore title."] } };
+    });
+    const expected = new Date(2026, 11, 1, 9, 30).toISOString();
+
+    act(() => type(input("dueAtLocal"), "2026-12-01T09:30"));
+    expect(input("dueAt").value).toBe(expected);
+    for (const mode of ["claim", "fixed", "claim", "fixed", "claim"]) {
+      act(() => radio(mode).click());
+      expect(input("dueAt").value).toBe(expected);
+    }
+    await submit();
+
+    expect(submitted?.get("dueAt")).toBe(expected);
+    expect(submitted?.get("assignmentMode")).toBe("claim");
+  });
+
+  it("keeps the converted due date, the title and the selects when ticks change after the date", async () => {
+    let submitted: FormData | undefined;
+    createChore.mockImplementation(async (_prev, formData) => {
+      submitted = formData;
+      return { values: NEW_VALUES };
+    });
+    const expected = new Date(2026, 11, 1, 9, 30).toISOString();
+
+    act(() => type(input("title"), "Bins"));
+    act(() => type(input("dueAtLocal"), "2026-12-01T09:30"));
+    act(() => {
+      select("recurrence").value = "weekly";
+      select("priority").value = "high";
+      select("categoryId").value = "cat_kitchen";
+    });
+    act(() => checkbox("user_2").click());
+    act(() => checkbox("user_3").click());
+    act(() => radio("claim").click());
+    act(() => radio("fixed").click());
+    act(() => checkbox("user_2").click());
+
+    expect(input("dueAt").value).toBe(expected);
+    await submit();
+
+    expect(submitted?.get("title")).toBe("Bins");
+    expect(submitted?.get("dueAt")).toBe(expected);
+    expect(submitted?.get("recurrence")).toBe("weekly");
+    expect(submitted?.get("priority")).toBe("high");
+    expect(submitted?.get("categoryId")).toBe("cat_kitchen");
+    expect(submitted?.get("assignmentMode")).toBe("fixed");
+    expect(submitted?.getAll("assigneeIds")).toEqual(["user_3"]);
+  });
+
+  it("keeps the invalid marker for a half-typed date through a mode toggle", () => {
+    const local = input("dueAtLocal");
+    Object.defineProperty(local, "validity", { value: { badInput: true }, configurable: true });
+    act(() => {
+      local.dispatchEvent(new Event("focusout", { bubbles: true }));
+    });
+
+    act(() => radio("claim").click());
+    expect(input("dueAt").value).toBe("invalid");
+  });
+
+  it("re-converts the echoed date after a refusal, and keeps it through later mode toggles", async () => {
+    createChore.mockResolvedValue({
+      values: { ...NEW_VALUES, dueAtLocal: "2026-12-01T09:30", assignmentMode: "claim" },
+      errors: { title: ["Enter a chore title."] },
+    });
+    const expected = new Date(2026, 11, 1, 9, 30).toISOString();
+
+    act(() => type(input("dueAtLocal"), "2026-12-01T09:30"));
+    act(() => radio("claim").click());
+    await submit();
+    expect(input("dueAt").value).toBe(expected);
+
+    act(() => radio("fixed").click());
+    act(() => radio("claim").click());
+    expect(input("dueAt").value).toBe(expected);
+    expect(new FormData(form()).get("dueAt")).toBe(expected);
   });
 
   it("starts from the values it is given", async () => {
