@@ -9,10 +9,11 @@ vi.mock("@/auth", () => ({ auth }));
 const userFindUnique = vi.fn();
 const membershipFindFirst = vi.fn();
 const categoryFindMany = vi.fn();
+const membershipFindMany = vi.fn();
 vi.mock("@/lib/db", () => ({
   db: {
     user: { findUnique: userFindUnique },
-    membership: { findFirst: membershipFindFirst },
+    membership: { findFirst: membershipFindFirst, findMany: membershipFindMany },
     category: { findMany: categoryFindMany },
   },
 }));
@@ -38,6 +39,13 @@ const categories = [
   { id: "builtin_1", name: "Bathroom", builtIn: true },
 ];
 
+// In the order the query returns them (createdAt, then id).
+const memberRows = [
+  { id: "membership_0", userId: "user_0", user: { name: "Zoe", email: "zoe@example.com" } },
+  { id: "membership_1", userId: "user_1", user: { name: "Alice", email: "alice@example.com" } },
+  { id: "membership_2", userId: "user_2", user: { name: null, email: "bob@example.com" } },
+];
+
 async function render() {
   return renderToStaticMarkup(await NewChorePage());
 }
@@ -54,6 +62,7 @@ beforeEach(() => {
   userFindUnique.mockReset().mockResolvedValue({ id: "user_1", email: "alice@example.com", name: "Alice" });
   membershipFindFirst.mockReset().mockResolvedValue(membership);
   categoryFindMany.mockReset().mockResolvedValue(categories);
+  membershipFindMany.mockReset().mockResolvedValue(memberRows);
   redirect.mockClear();
 });
 
@@ -111,6 +120,51 @@ describe("/chores/new page", () => {
       { value: "medium", selected: true, label: "Medium" },
       { value: "large", selected: false, label: "Large" },
     ]);
+  });
+
+  it("defaults Repeats to None", async () => {
+    const html = await render();
+
+    expect(options(html, "recurrence")).toEqual([
+      { value: "none", selected: true, label: "None" },
+      { value: "daily", selected: false, label: "Daily" },
+      { value: "weekly", selected: false, label: "Weekly" },
+      { value: "monthly", selected: false, label: "Monthly" },
+    ]);
+  });
+
+  it("loads the household's members in the members page order", async () => {
+    await render();
+
+    expect(membershipFindMany).toHaveBeenCalledWith({
+      where: { householdId: "household_1" },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true, userId: true, user: { select: { name: true, email: true } } },
+    });
+  });
+
+  it("renders Fixed checked and one unticked checkbox per member, by user id, with the caller marked", async () => {
+    const html = await render();
+
+    const inputs = (type: string) =>
+      [...html.matchAll(new RegExp(`<input type="${type}"[^>]*>`, "g"))].map((match) => ({
+        name: match[0].match(/name="([^"]*)"/)?.[1],
+        value: match[0].match(/value="([^"]*)"/)?.[1],
+        checked: match[0].includes('checked=""'),
+      }));
+    expect(inputs("radio")).toEqual([
+      { name: "assignmentMode", value: "fixed", checked: true },
+      { name: "assignmentMode", value: "claim", checked: false },
+    ]);
+    expect(inputs("checkbox")).toEqual([
+      { name: "assigneeIds", value: "user_0", checked: false },
+      { name: "assigneeIds", value: "user_1", checked: false },
+      { name: "assigneeIds", value: "user_2", checked: false },
+    ]);
+    expect(html).toContain('Alice<span class="text-muted-foreground"> (you)</span>');
+    expect(html).not.toContain('Zoe<span class="text-muted-foreground"> (you)</span>');
+    expect(html).toContain("bob@example.com");
+    expect(html).not.toMatch(/<fieldset[^>]*id="assignees"[^>]*hidden/);
   });
 
   it("has a noValidate form, a title with no maxLength, an empty local due field and a hidden UTC one", async () => {

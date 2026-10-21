@@ -16,6 +16,16 @@ const { ChoreForm } = await import("./chore-form");
 let container: HTMLDivElement;
 let root: Root;
 
+/** The defaults for the fields a test doesn't care about. */
+const unassigned = { recurrence: "none", assignmentMode: "fixed", assigneeIds: [] as string[] };
+
+// In members page order.
+const members = [
+  { userId: "user_1", name: "Alice", email: "alice@example.com", isSelf: true },
+  { userId: "user_2", name: null, email: "bob@example.com", isSelf: false },
+  { userId: "user_3", name: "Alice", email: "alice2@example.com", isSelf: false },
+];
+
 function input(name: string): HTMLInputElement {
   return container.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
 }
@@ -33,7 +43,9 @@ beforeEach(async () => {
   document.body.append(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(<ChoreForm categories={[{ id: "cat_kitchen", name: "Kitchen" }]} />);
+    root.render(
+      <ChoreForm categories={[{ id: "cat_kitchen", name: "Kitchen" }]} members={members} />,
+    );
   });
 });
 
@@ -81,6 +93,7 @@ describe("ChoreForm due date", () => {
           priority: "medium",
           effort: "medium",
           categoryId: "",
+          ...unassigned,
         },
         errors: { title: ["Enter a chore title."] },
       };
@@ -104,6 +117,7 @@ describe("ChoreForm due date", () => {
       priority: "high",
       effort: "large",
       categoryId: "cat_kitchen",
+      ...unassigned,
     };
     createChore.mockResolvedValue({ values: echoed, errors: { title: ["Enter a chore title."] } });
     const select = (name: string) =>
@@ -134,7 +148,7 @@ describe("ChoreForm due date", () => {
 
   it("selects None again when the chosen category was refused", async () => {
     createChore.mockResolvedValue({
-      values: { title: "Bins", dueAtLocal: "", priority: "high", effort: "medium", categoryId: "" },
+      values: { title: "Bins", dueAtLocal: "", priority: "high", effort: "medium", categoryId: "", ...unassigned },
       errors: { categoryId: ["That category no longer exists. Choose another one."] },
     });
     const category = container.querySelector<HTMLSelectElement>("select[name=categoryId]")!;
@@ -158,6 +172,7 @@ describe("ChoreForm due date", () => {
         priority: "medium",
         effort: "medium",
         categoryId: "",
+        ...unassigned,
       },
       errors: { dueAt: [DUE_AT_TIME_ZONE_ERROR], categoryId: ["That category no longer exists. Choose another one."] },
     });
@@ -175,5 +190,203 @@ describe("ChoreForm due date", () => {
     expect(category.getAttribute("aria-invalid")).toBe("true");
     expect(category.value).toBe("");
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(2);
+  });
+});
+
+describe("ChoreForm recurrence and assignment", () => {
+  const form = () => container.querySelector("form")!;
+  const select = (name: string) =>
+    container.querySelector<HTMLSelectElement>(`select[name="${name}"]`)!;
+  const radio = (value: string) =>
+    container.querySelector<HTMLInputElement>(`input[name="assignmentMode"][value="${value}"]`)!;
+  const checkbox = (userId: string) =>
+    container.querySelector<HTMLInputElement>(`input[name="assigneeIds"][value="${userId}"]`)!;
+  const assignees = () => container.querySelector<HTMLFieldSetElement>("#assignees")!;
+  const ticked = () =>
+    [...container.querySelectorAll<HTMLInputElement>('input[name="assigneeIds"]')]
+      .filter((box) => box.checked)
+      .map((box) => box.value);
+
+  /** Refuses the title and echoes the rest the way the action does. */
+  function refuseTitle() {
+    createChore.mockImplementation(async (_prev, formData) => {
+      const mode = String(formData.get("assignmentMode") ?? "");
+      return {
+        values: {
+          title: "",
+          dueAtLocal: "",
+          priority: String(formData.get("priority")),
+          effort: String(formData.get("effort")),
+          categoryId: String(formData.get("categoryId")),
+          recurrence: String(formData.get("recurrence")),
+          assignmentMode: mode,
+          assigneeIds: mode === "claim" ? [] : formData.getAll("assigneeIds").map(String),
+        },
+        errors: { title: ["Enter a chore title."] },
+      };
+    });
+  }
+
+  async function submit() {
+    await act(async () => {
+      form().requestSubmit();
+    });
+  }
+
+  it("defaults to None, Fixed and nobody ticked, the caller included", () => {
+    expect(select("recurrence").value).toBe("none");
+    expect([...select("recurrence").options].map((option) => [option.value, option.text])).toEqual([
+      ["none", "None"],
+      ["daily", "Daily"],
+      ["weekly", "Weekly"],
+      ["monthly", "Monthly"],
+    ]);
+    expect(radio("fixed").checked).toBe(true);
+    expect(radio("claim").checked).toBe(false);
+    expect(radio("fixed").closest("label")!.textContent).toBe("Fixed — specific people");
+    expect(radio("claim").closest("label")!.textContent).toBe("Claim — anyone can claim it");
+    expect(assignees().hidden).toBe(false);
+    expect(ticked()).toEqual([]);
+  });
+
+  it("lists every member in the given order with name, email and (you)", () => {
+    const labels = [
+      ...container.querySelectorAll<HTMLInputElement>('input[name="assigneeIds"]'),
+    ].map((box) => [box.value, box.closest("label")!.textContent]);
+    expect(labels).toEqual([
+      ["user_1", "Alice (you)alice@example.com"],
+      // No name: the email is the label, shown once.
+      ["user_2", "bob@example.com"],
+      ["user_3", "Alicealice2@example.com"],
+    ]);
+  });
+
+  it("hides the list when Claim is chosen and shows it again with the ticks kept", () => {
+    act(() => checkbox("user_2").click());
+    act(() => radio("claim").click());
+    expect(assignees().hidden).toBe(true);
+    // The re-render doesn't put the default back.
+    expect(radio("claim").checked).toBe(true);
+    expect(radio("fixed").checked).toBe(false);
+
+    act(() => radio("fixed").click());
+    expect(radio("fixed").checked).toBe(true);
+    expect(assignees().hidden).toBe(false);
+    expect(ticked()).toEqual(["user_2"]);
+  });
+
+  it("keeps recurrence, Fixed and the ticks after a refusal, twice in a row, in member order", async () => {
+    refuseTitle();
+    act(() => {
+      select("recurrence").value = "weekly";
+    });
+    act(() => checkbox("user_3").click());
+    act(() => checkbox("user_1").click());
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await submit();
+
+      expect(select("recurrence").value).toBe("weekly");
+      expect(radio("fixed").checked).toBe(true);
+      expect(assignees().hidden).toBe(false);
+      expect(ticked()).toEqual(["user_1", "user_3"]);
+    }
+    // What the next submit sends.
+    const sent = new FormData(form());
+    expect(sent.get("recurrence")).toBe("weekly");
+    expect(sent.get("assignmentMode")).toBe("fixed");
+    expect(sent.getAll("assigneeIds")).toEqual(["user_1", "user_3"]);
+  });
+
+  it("keeps Claim with the list hidden after a refusal, twice in a row, and echoes no ticks", async () => {
+    refuseTitle();
+    act(() => {
+      select("recurrence").value = "monthly";
+    });
+    act(() => checkbox("user_2").click());
+    act(() => radio("claim").click());
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await submit();
+
+      expect(select("recurrence").value).toBe("monthly");
+      expect(radio("claim").checked).toBe(true);
+      expect(radio("fixed").checked).toBe(false);
+      expect(assignees().hidden).toBe(true);
+    }
+    expect(new FormData(form()).get("assignmentMode")).toBe("claim");
+
+    act(() => radio("fixed").click());
+    expect(assignees().hidden).toBe(false);
+    expect(ticked()).toEqual([]);
+  });
+
+  it("shows the list again after a Fixed refusal that follows a Claim one", async () => {
+    refuseTitle();
+    act(() => radio("claim").click());
+    await submit();
+    expect(assignees().hidden).toBe(true);
+
+    act(() => radio("fixed").click());
+    act(() => checkbox("user_3").click());
+    expect(radio("fixed").checked).toBe(true);
+    await submit();
+
+    expect(radio("fixed").checked).toBe(true);
+    expect(assignees().hidden).toBe(false);
+    expect(ticked()).toEqual(["user_3"]);
+  });
+
+  it("drops a refused member's tick, keeps the others and shows the message under the list", async () => {
+    const message =
+      "Someone you picked is no longer in this household. Check the list and try again.";
+    createChore.mockResolvedValue({
+      values: {
+        title: "Bins",
+        dueAtLocal: "",
+        priority: "medium",
+        effort: "medium",
+        categoryId: "",
+        ...unassigned,
+        assigneeIds: ["user_1"],
+      },
+      errors: { assigneeIds: [message] },
+    });
+    act(() => checkbox("user_1").click());
+    act(() => checkbox("user_2").click());
+
+    await submit();
+
+    expect(ticked()).toEqual(["user_1"]);
+    expect(assignees().getAttribute("aria-invalid")).toBe("true");
+    expect(assignees().querySelector("#assigneeIds-error")?.textContent).toBe(message);
+  });
+
+  it("starts from the values it is given", async () => {
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <ChoreForm
+          categories={[]}
+          members={members}
+          values={{
+            title: "Bins",
+            dueAtLocal: "",
+            priority: "high",
+            effort: "small",
+            categoryId: "",
+            recurrence: "daily",
+            assignmentMode: "claim",
+            assigneeIds: [],
+          }}
+        />,
+      );
+    });
+
+    expect(input("title").value).toBe("Bins");
+    expect(select("recurrence").value).toBe("daily");
+    expect(radio("claim").checked).toBe(true);
+    expect(assignees().hidden).toBe(true);
   });
 });

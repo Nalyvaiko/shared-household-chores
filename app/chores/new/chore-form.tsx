@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 
 import {
   createChore,
@@ -15,15 +15,37 @@ import { cn } from "@/lib/utils";
 
 export type CategoryOption = { id: string; name: string };
 
-const initialValues: ChoreFormValues = {
+/** A current household member, in the members page order. */
+export type MemberOption = {
+  userId: string;
+  name: string | null;
+  email: string;
+  /** The caller, marked "(you)". */
+  isSelf: boolean;
+};
+
+const NEW_CHORE_VALUES: ChoreFormValues = {
   title: "",
   dueAtLocal: "",
   priority: "medium",
   effort: "medium",
   categoryId: "",
+  recurrence: "none",
+  assignmentMode: "fixed",
+  assigneeIds: [],
 };
 
-const initialState: CreateChoreState = { values: initialValues };
+const RECURRENCE_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
+const ASSIGNMENT_MODE_OPTIONS = [
+  { value: "fixed", label: "Fixed — specific people" },
+  { value: "claim", label: "Claim — anyone can claim it" },
+];
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Low" },
@@ -68,9 +90,29 @@ function syncHiddenDueAt(local: HTMLInputElement | null, utc: HTMLInputElement |
   utc.value = localToUtcIso(local.value, local.validity.badInput);
 }
 
-export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
-  const [state, action, pending] = useActionState(createChore, initialState);
+export function ChoreForm({
+  categories,
+  members,
+  values: initialValues = NEW_CHORE_VALUES,
+}: {
+  categories: CategoryOption[];
+  members: MemberOption[];
+  /** The values the form starts with. */
+  values?: ChoreFormValues;
+}) {
+  const [state, action, pending] = useActionState<CreateChoreState, FormData>(createChore, {
+    values: initialValues,
+  });
   const { values, errors } = state;
+
+  // The picked mode checks its radio and decides whether the member list
+  // shows. After each action result it follows the echoed mode.
+  const [mode, setMode] = useState(values.assignmentMode);
+  const [modeState, setModeState] = useState(state);
+  if (modeState !== state) {
+    setModeState(state);
+    setMode(state.values.assignmentMode);
+  }
   const localRef = useRef<HTMLInputElement>(null);
   const utcRef = useRef<HTMLInputElement>(null);
 
@@ -126,6 +168,25 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
         {/* The UTC instant the local time means in this browser's zone. */}
         <input ref={utcRef} type="hidden" name="dueAt" defaultValue="" />
         <FieldErrors id="dueAt-error" errors={errors?.dueAt} />
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor="recurrence">Repeats</Label>
+        <select
+          key={values.recurrence}
+          id="recurrence"
+          name="recurrence"
+          className={selectClassName}
+          defaultValue={values.recurrence}
+          {...invalidProps("recurrence-error", errors?.recurrence)}
+        >
+          {RECURRENCE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        <FieldErrors id="recurrence-error" errors={errors?.recurrence} />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -185,6 +246,71 @@ export function ChoreForm({ categories }: { categories: CategoryOption[] }) {
         </select>
         <FieldErrors id="categoryId-error" errors={errors?.categoryId} />
       </div>
+
+      <fieldset
+        className="flex flex-col gap-2"
+        {...invalidProps("assignmentMode-error", errors?.assignmentMode)}
+      >
+        <legend className="mb-2 text-sm leading-none font-medium">Assignment</legend>
+        {/* Controlled: on every render React re-sets an uncontrolled radio's
+            `checked` attribute, which re-checks the default radio the user
+            moved away from. Keyed on the echoed mode, like the selects, so
+            the form reset puts back the echoed mode (the one checked when the
+            radios mounted). */}
+        <div key={values.assignmentMode} className="flex flex-col gap-2">
+          {ASSIGNMENT_MODE_OPTIONS.map((option) => (
+            <label key={option.value} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="assignmentMode"
+                value={option.value}
+                checked={mode === option.value}
+                onChange={(event) => setMode(event.target.value)}
+                className="size-4 accent-primary"
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+        <FieldErrors id="assignmentMode-error" errors={errors?.assignmentMode} />
+      </fieldset>
+
+      {/* Hidden, not removed, in Claim mode, so the ticks come back with
+          Fixed. Without JavaScript it stays visible; the server ignores it. */}
+      <fieldset
+        id="assignees"
+        hidden={mode === "claim"}
+        className="flex flex-col gap-2"
+        {...invalidProps("assigneeIds-error", errors?.assigneeIds)}
+      >
+        <legend className="mb-2 text-sm leading-none font-medium">Assigned to</legend>
+        {/* Keyed on the echoed ticks, so the form reset can't revert them. */}
+        <ul key={values.assigneeIds.join(" ")} className="flex flex-col gap-2">
+          {members.map((member) => (
+            <li key={member.userId}>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="assigneeIds"
+                  value={member.userId}
+                  defaultChecked={values.assigneeIds.includes(member.userId)}
+                  className="mt-0.5 size-4 accent-primary"
+                />
+                <span className="flex min-w-0 flex-col">
+                  <span className="break-words">
+                    {member.name || member.email}
+                    {member.isSelf ? <span className="text-muted-foreground"> (you)</span> : null}
+                  </span>
+                  {member.name ? (
+                    <span className="break-all text-muted-foreground">{member.email}</span>
+                  ) : null}
+                </span>
+              </label>
+            </li>
+          ))}
+        </ul>
+        <FieldErrors id="assigneeIds-error" errors={errors?.assigneeIds} />
+      </fieldset>
 
       <Button type="submit" disabled={pending} className="self-start">
         {pending ? "Creating…" : "Create chore"}
