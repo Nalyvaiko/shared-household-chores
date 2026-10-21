@@ -15,6 +15,8 @@ export const CHORE_TITLE_CONTROL_ERROR =
 
 export const CHORE_PRIORITY_ERROR = "Choose a priority.";
 export const CHORE_EFFORT_ERROR = "Choose an effort level.";
+export const CHORE_RECURRENCE_ERROR = "Choose how often the chore repeats.";
+export const CHORE_ASSIGNMENT_MODE_ERROR = "Choose how the chore is assigned.";
 
 export const DUE_AT_INVALID_ERROR = "Enter a valid due date and time, or clear it.";
 export const DUE_AT_RANGE_ERROR = "Due date must be between the years 2000 and 2099.";
@@ -44,10 +46,16 @@ export const choreTitleSchema = z
 // Listed in display order; the values match the Prisma enums.
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export const EFFORTS = ["small", "medium", "large"] as const;
+export const RECURRENCES = ["none", "daily", "weekly", "monthly"] as const;
+export const ASSIGNMENT_MODES = ["fixed", "claim"] as const;
 
 /** Missing, empty or unknown values are refused, never replaced with a default. */
 export const prioritySchema = z.enum(PRIORITIES, { error: CHORE_PRIORITY_ERROR });
 export const effortSchema = z.enum(EFFORTS, { error: CHORE_EFFORT_ERROR });
+export const recurrenceSchema = z.enum(RECURRENCES, { error: CHORE_RECURRENCE_ERROR });
+export const assignmentModeSchema = z.enum(ASSIGNMENT_MODES, {
+  error: CHORE_ASSIGNMENT_MODE_ERROR,
+});
 
 // Saved due dates must fall in [2000-01-01T00:00:00Z, 2100-01-01T00:00:00Z).
 const DUE_AT_MIN = Date.UTC(2000, 0, 1);
