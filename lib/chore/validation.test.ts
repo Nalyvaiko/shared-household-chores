@@ -139,6 +139,13 @@ describe("parseDueAt", () => {
     },
   );
 
+  it("gives the range message for the browser's out-of-range marker", () => {
+    expect(parseDueAt("out-of-range", "275760-09-13T00:00")).toEqual({
+      success: false,
+      error: DUE_AT_RANGE_ERROR,
+    });
+  });
+
   it("gives the time-zone message when a date was typed but no UTC value came", () => {
     expect(parseDueAt("", "2026-03-10T09:30")).toEqual({
       success: false,

@@ -269,6 +269,7 @@ describe("createChore: refusals", () => {
     ["an offset value", "2026-03-10T09:30", "2026-03-10T09:30:00+02:00", DUE_AT_INVALID_ERROR],
     ["year 0001", "0001-03-10T09:30", "0001-03-10T09:30:00.000Z", DUE_AT_RANGE_ERROR],
     ["year 275760", "275760-09-13T00:00", "+275760-09-13T00:00:00.000Z", DUE_AT_RANGE_ERROR],
+    ["the out-of-range marker", "275760-09-13T00:00", "out-of-range", DUE_AT_RANGE_ERROR],
     ["a typed date with no UTC value", "2026-03-10T09:30", "", DUE_AT_TIME_ZONE_ERROR],
   ])("refuses %s as the due date", async (_label, dueAtLocal, dueAt, error) => {
     const state = await createChore(initial, form({ dueAtLocal, dueAt }));
