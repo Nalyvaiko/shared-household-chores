@@ -161,12 +161,15 @@ Acceptance criteria:
 
 ## 16. Complete a chore
 Goal: An assignee can mark a chore complete, and it is recorded.
-Description: Add a "Complete" action available to any assignee of a chore (or any member for a claim chore they hold). It sets the chore status to `completed` and writes a `CompletionRecord` with the user and timestamp inside one transaction. For multi-assignee chores, one person completing it completes the whole chore.
+Description: Add a "Complete" action available to any assignee of a chore (for a claim chore, the current claimant). It sets the chore status to `completed` and writes a `CompletionRecord` with the user and timestamp inside one transaction. For multi-assignee chores, one person completing it completes the whole chore.
 Acceptance criteria:
 - "Complete" is available to any assignee, and to the current claimant for a claim chore.
 - Completing sets status to `completed` and writes a `CompletionRecord` (user + timestamp) in one transaction.
 - For a multi-assignee chore, one completion completes the whole chore.
 - A user who is not an assignee (or claimant) cannot complete the chore.
+- Admins who are not assigned cannot complete.
+- Only pending chores can be completed.
+- A double submit creates exactly one CompletionRecord.
 
 ## 17. Recurring chore roll-over
 Goal: Completing a recurring chore creates its next occurrence.

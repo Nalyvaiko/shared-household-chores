@@ -47,9 +47,11 @@ Two fixed roles. No custom roles, no configurable permissions, no permissions UI
   - Edit household settings
   - Delete any chore
   - Everything a member can do
+  - Admins follow the same completion rule; an admin who is not assigned cannot complete a chore.
 - **Member**
   - Create chores
-  - Edit, complete, or skip any chore in the household
+  - Edit or skip any chore in the household
+  - Complete a chore they are assigned to (for a claim chore, one they have claimed)
 
 Everyone in a household sees all chores in that household. Chore visibility is not
 configurable in the MVP.
@@ -89,6 +91,8 @@ Supported assignment modes for the MVP:
 plus edge-case handling when a member leaves mid-rotation).
 
 Who assigns a chore: the chore creator or any admin.
+
+Only an assigned person (or the current claimant) can complete a chore.
 
 When multiple people are assigned:
 - Any one assigned person completing the chore marks the whole chore complete.
