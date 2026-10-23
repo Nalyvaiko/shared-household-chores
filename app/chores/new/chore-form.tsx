@@ -10,8 +10,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { nativeSelectClassName } from "@/components/ui/native-select";
 import { DUE_AT_LOCAL_MAX, DUE_AT_LOCAL_MIN, localToUtcIso } from "@/lib/chore/due-date";
-import { cn } from "@/lib/utils";
+import { EFFORT_OPTIONS, PRIORITY_OPTIONS, RECURRENCE_OPTIONS } from "@/lib/chore/labels";
 
 export type CategoryOption = { id: string; name: string };
 
@@ -35,37 +36,10 @@ const NEW_CHORE_VALUES: ChoreFormValues = {
   assigneeIds: [],
 };
 
-const RECURRENCE_OPTIONS = [
-  { value: "none", label: "None" },
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" },
-];
-
 const ASSIGNMENT_MODE_OPTIONS = [
   { value: "fixed", label: "Fixed — specific people" },
   { value: "claim", label: "Claim — anyone can claim it" },
 ];
-
-const PRIORITY_OPTIONS = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "urgent", label: "Urgent" },
-];
-
-const EFFORT_OPTIONS = [
-  { value: "small", label: "Small" },
-  { value: "medium", label: "Medium" },
-  { value: "large", label: "Large" },
-];
-
-// A native select styled like the shadcn Input.
-const selectClassName = cn(
-  "h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm dark:bg-input/30",
-  "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50",
-  "aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40",
-);
 
 function FieldErrors({ id, errors }: { id: string; errors?: string[] }) {
   if (!errors?.length) return null;
@@ -182,7 +156,7 @@ export function ChoreForm({
           key={values.recurrence}
           id="recurrence"
           name="recurrence"
-          className={selectClassName}
+          className={nativeSelectClassName}
           defaultValue={values.recurrence}
           {...invalidProps("recurrence-error", errors?.recurrence)}
         >
@@ -201,7 +175,7 @@ export function ChoreForm({
           key={values.priority}
           id="priority"
           name="priority"
-          className={selectClassName}
+          className={nativeSelectClassName}
           defaultValue={values.priority}
           {...invalidProps("priority-error", errors?.priority)}
         >
@@ -220,7 +194,7 @@ export function ChoreForm({
           key={values.effort}
           id="effort"
           name="effort"
-          className={selectClassName}
+          className={nativeSelectClassName}
           defaultValue={values.effort}
           {...invalidProps("effort-error", errors?.effort)}
         >
@@ -239,7 +213,7 @@ export function ChoreForm({
           key={values.categoryId}
           id="categoryId"
           name="categoryId"
-          className={selectClassName}
+          className={nativeSelectClassName}
           defaultValue={values.categoryId}
           {...invalidProps("categoryId-error", errors?.categoryId)}
         >
