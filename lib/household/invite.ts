@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 
 import type { Prisma } from "@prisma/client";
 
+import { formatUtcDateTime } from "@/lib/date-time-format";
+
 /** How long a new invite link stays valid. */
 export const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -104,18 +106,7 @@ export function inviteUrl(origin: string, token: string): string {
   return `${origin}/invite/${token}`;
 }
 
-const expiryFormat = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-  timeZone: "UTC",
-  timeZoneName: "short",
-});
-
 /** For example "23 Oct 2026, 14:05 UTC". Formatted on the server, in UTC. */
 export function formatExpiry(date: Date): string {
-  return expiryFormat.format(date);
+  return formatUtcDateTime(date);
 }
