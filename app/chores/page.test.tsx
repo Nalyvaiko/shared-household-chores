@@ -474,7 +474,7 @@ describe("/chores outcome message across server re-renders", () => {
 
     completeChore.mockResolvedValue({ status: "success", message: 'Completed "Take out bins".' });
     await act(async () => {
-      container.querySelector("li button")!.click();
+      container.querySelector<HTMLButtonElement>("li button")!.click();
     });
 
     expect(completeChore).toHaveBeenCalledTimes(1);
@@ -503,7 +503,7 @@ describe("/chores outcome message across server re-renders", () => {
 
     completeChore.mockResolvedValueOnce({ status: "success", message: 'Completed "Take out bins".' });
     await act(async () => {
-      container.querySelectorAll("li button")[0].click();
+      container.querySelectorAll<HTMLButtonElement>("li button")[0].click();
     });
     expect(status().textContent).toBe('Completed "Take out bins".');
 
@@ -512,7 +512,7 @@ describe("/chores outcome message across server re-renders", () => {
       message: "This chore has already been completed or skipped.",
     });
     await act(async () => {
-      container.querySelectorAll("li button")[1].click();
+      container.querySelectorAll<HTMLButtonElement>("li button")[1].click();
     });
 
     expect(status().textContent).toBe("");
@@ -526,7 +526,7 @@ describe("/chores outcome message across server re-renders", () => {
     completeChore.mockReturnValue(new Promise((resolve) => (finish = resolve)));
 
     await act(async () => {
-      container.querySelector("li button")!.click();
+      container.querySelector<HTMLButtonElement>("li button")!.click();
     });
     const button = container.querySelector<HTMLButtonElement>("li button")!;
     expect(button.disabled).toBe(true);
