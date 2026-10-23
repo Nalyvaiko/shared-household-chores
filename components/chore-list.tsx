@@ -38,36 +38,32 @@ export function ChoreRow({
           {isOverdue(chore, now) ? <Badge variant="destructive">Overdue</Badge> : null}
         </span>
       </div>
-      <dl className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-        <div>
-          <dt className="sr-only">Category</dt>
-          <dd className="break-words">{chore.category?.name ?? "No category"}</dd>
-        </div>
-        <div>
-          <dt className="sr-only">Due</dt>
-          <dd>
-            {chore.dueAt ? <LocalDateTime iso={chore.dueAt.toISOString()} /> : "No due date"}
-          </dd>
-        </div>
-        <div>
-          <dt className="sr-only">Priority</dt>
-          <dd>Priority: {priorityLabel(chore.priority)}</dd>
-        </div>
-        <div>
-          <dt className="sr-only">Effort</dt>
-          <dd>Effort: {effortLabel(chore.effort)}</dd>
-        </div>
-        {repeats ? (
-          <div>
-            <dt className="sr-only">Recurrence</dt>
-            <dd>{repeats}</dd>
-          </div>
-        ) : null}
-        <div>
-          <dt className="sr-only">Assignees</dt>
-          <dd className="break-words">{assigneeLine(chore, viewerId)}</dd>
-        </div>
-      </dl>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <span className="min-w-0 break-words">
+          {chore.category ? (
+            <>
+              <span className="sr-only">Category: </span>
+              {chore.category.name}
+            </>
+          ) : (
+            "No category"
+          )}
+        </span>
+        <span>
+          {chore.dueAt ? (
+            <>
+              <span className="sr-only">Due: </span>
+              <LocalDateTime iso={chore.dueAt.toISOString()} />
+            </>
+          ) : (
+            "No due date"
+          )}
+        </span>
+        <span>Priority: {priorityLabel(chore.priority)}</span>
+        <span>Effort: {effortLabel(chore.effort)}</span>
+        {repeats ? <span>{repeats}</span> : null}
+        <span className="min-w-0 break-words">{assigneeLine(chore, viewerId)}</span>
+      </div>
       {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
     </li>
   );
