@@ -124,10 +124,13 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
       <Button asChild>
         <Link href="/chores/new">New chore</Link>
       </Button>
-      {/* Keyed on the filters: a client-side navigation (Clear filters, Show
-          all chores) keeps the DOM, and React doesn't re-apply defaultValue. */}
+      {/* A client-side navigation (Clear filters, Show all chores, any link to
+          /chores) keeps the DOM, and React doesn't re-apply defaultValue, so
+          edits that were never applied would survive it. Keyed on this
+          request's time, the form remounts with the effective filters on
+          every render from the server, even when the filters didn't change. */}
       <ChoreFilterForm
-        key={`${filters.status} ${filters.overdueOnly} ${filters.category}`}
+        key={now.toISOString()}
         filters={filters}
         categories={categories.map(({ id, name }) => ({ id, name }))}
       />

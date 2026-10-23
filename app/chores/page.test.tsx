@@ -1,3 +1,5 @@
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -281,5 +283,76 @@ describe("/chores page", () => {
     expect(markup).toMatch(/<a[^>]*href="\/chores\?status=all"[^>]*>Show all chores<\/a>/);
     expect(markup).not.toContain("No chores yet.");
     expect(markup).not.toContain("<li");
+  });
+});
+
+describe("/chores filter form across client-side navigations", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  // A client-side navigation renders the new server tree into the same root,
+  // so React reconciles it with the DOM the user has been editing.
+  async function navigate(params: Record<string, string | string[]>) {
+    const tree = await render(params);
+    await act(async () => root.render(tree));
+  }
+
+  const status = () => container.querySelector<HTMLSelectElement>("#filter-status")!;
+  const category = () => container.querySelector<HTMLSelectElement>("#filter-category")!;
+  const overdue = () => container.querySelector<HTMLInputElement>('input[name="overdue"]')!;
+
+  function editWithoutApplying() {
+    status().value = "skipped";
+    category().value = "cat_bath";
+    overdue().checked = true;
+  }
+
+  it.each([
+    ["the default filters", {}],
+    ["only invalid values", { status: "Pending", category: "cat_other_household" }],
+  ])(
+    "resets unapplied edits when Clear filters leads back to the same filters, from %s",
+    async (_label, params) => {
+      await navigate(params);
+      editWithoutApplying();
+
+      // Clear filters goes to /chores, so the effective filters stay the defaults.
+      vi.setSystemTime(new Date(NOW.getTime() + 5_000));
+      await navigate({});
+
+      expect(status().value).toBe("pending");
+      expect(category().value).toBe("");
+      expect(overdue().checked).toBe(false);
+    },
+  );
+
+  it("shows the new filters after Show all chores and after Clear filters from a filtered URL", async () => {
+    await navigate({ status: "completed", overdue: "1", category: "cat_kitchen" });
+    expect(status().value).toBe("completed");
+
+    vi.setSystemTime(new Date(NOW.getTime() + 5_000));
+    await navigate({ status: "all" });
+    expect(status().value).toBe("all");
+    expect(category().value).toBe("");
+    expect(overdue().checked).toBe(false);
+
+    editWithoutApplying();
+    vi.setSystemTime(new Date(NOW.getTime() + 10_000));
+    await navigate({});
+    expect(status().value).toBe("pending");
+    expect(category().value).toBe("");
+    expect(overdue().checked).toBe(false);
   });
 });
