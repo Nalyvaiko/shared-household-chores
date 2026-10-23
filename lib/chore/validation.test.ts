@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CHORE_ASSIGNMENT_MODE_ERROR,
   CHORE_EFFORT_ERROR,
   CHORE_PRIORITY_ERROR,
+  CHORE_RECURRENCE_ERROR,
   CHORE_TITLE_CONTROL_ERROR,
   CHORE_TITLE_EMPTY_ERROR,
   CHORE_TITLE_TOO_LONG_ERROR,
   DUE_AT_INVALID_ERROR,
   DUE_AT_RANGE_ERROR,
   DUE_AT_TIME_ZONE_ERROR,
+  assignmentModeSchema,
   choreTitleSchema,
   effortSchema,
   parseDueAt,
   prioritySchema,
+  recurrenceSchema,
 } from "@/lib/chore/validation";
 
 function titleErrors(value: unknown): string[] {
@@ -83,6 +87,36 @@ describe("prioritySchema and effortSchema", () => {
     expect(parsed.success).toBe(false);
     expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([CHORE_EFFORT_ERROR]);
   });
+});
+
+describe("recurrenceSchema and assignmentModeSchema", () => {
+  it.each(["none", "daily", "weekly", "monthly"])("accepts the recurrence %j", (value) => {
+    expect(recurrenceSchema.parse(value)).toBe(value);
+  });
+
+  it.each(["", "DAILY", "yearly", " none", undefined, null])(
+    "rejects the recurrence %j instead of defaulting it",
+    (value) => {
+      const parsed = recurrenceSchema.safeParse(value);
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([CHORE_RECURRENCE_ERROR]);
+    },
+  );
+
+  it.each(["fixed", "claim"])("accepts the assignment mode %j", (value) => {
+    expect(assignmentModeSchema.parse(value)).toBe(value);
+  });
+
+  it.each(["", "FIXED", "rotate", undefined, null])(
+    "rejects the assignment mode %j instead of defaulting it",
+    (value) => {
+      const parsed = assignmentModeSchema.safeParse(value);
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.message)).toEqual([
+        CHORE_ASSIGNMENT_MODE_ERROR,
+      ]);
+    },
+  );
 });
 
 describe("parseDueAt", () => {
