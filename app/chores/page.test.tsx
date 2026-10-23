@@ -3,6 +3,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ChoreActionState } from "@/app/chores/actions";
+
 // The page resolves the user and household through the real guards, so the
 // session and the database are mocked underneath them.
 const auth = vi.fn();
@@ -27,6 +29,10 @@ const redirect = vi.fn((url: string) => {
   throw new Error(`NEXT_REDIRECT ${url}`);
 });
 vi.mock("next/navigation", () => ({ redirect }));
+
+// The rows' Complete forms post to this; the action has its own tests.
+const completeChore = vi.fn<(prev: ChoreActionState, formData: FormData) => Promise<ChoreActionState>>();
+vi.mock("@/app/chores/actions", () => ({ completeChore }));
 
 const { default: ChoresPage, metadata } = await import("./page");
 
@@ -286,6 +292,80 @@ describe("/chores page", () => {
   });
 });
 
+describe("/chores Complete button", () => {
+  const bob = { userId: "user_2", user: { name: "Bob", email: "bob@example.com", memberships: [{ id: "m2" }] } };
+  const alice = {
+    userId: "user_1",
+    user: { name: "Alice", email: "alice@example.com", memberships: [{ id: "membership_1" }] },
+  };
+
+  /** The titles of the rows that have a Complete button, in order. */
+  async function completable(params: Record<string, string> = {}) {
+    const doc = parse(await html(params));
+    return [...doc.querySelectorAll("li")]
+      .filter((row) => row.querySelector("form"))
+      .map((row) => {
+        const button = row.querySelector("button")!;
+        expect(button.textContent).toBe(`Complete "${row.querySelector("span")!.textContent}"`);
+        expect(row.querySelector<HTMLInputElement>('input[name="choreId"]')!.type).toBe("hidden");
+        return row.querySelector("span")!.textContent;
+      });
+  }
+
+  beforeEach(() => {
+    choreFindMany.mockResolvedValue([
+      chore({ id: "c1", title: "Mine overdue", dueAt: new Date("2026-10-01T00:00:00.000Z"), assignees: [alice] }),
+      chore({ id: "c2", title: "Mine not yet due", dueAt: new Date("2026-12-01T00:00:00.000Z"), assignees: [bob, alice] }),
+      chore({ id: "c3", title: "Bob's", assignees: [bob] }),
+      chore({ id: "c4", title: "Nobody's" }),
+      chore({ id: "c5", title: "Unclaimed", assignmentMode: "claim" }),
+      chore({ id: "c6", title: "Claimed by me", assignmentMode: "claim", assignees: [alice] }),
+      chore({ id: "c7", title: "Claimed by Bob", assignmentMode: "claim", assignees: [bob] }),
+      chore({ id: "c8", title: "Done", status: "completed", assignees: [alice] }),
+      chore({ id: "c9", title: "Skipped", status: "skipped", assignees: [alice] }),
+    ]);
+  });
+
+  it("shows only on the viewer's pending assigned or claimed chores, due or not", async () => {
+    expect(await completable({ status: "all" })).toEqual([
+      "Mine overdue",
+      "Mine not yet due",
+      "Claimed by me",
+    ]);
+  });
+
+  it("does not show for an admin on chores they are not assigned to", async () => {
+    membershipFindFirst.mockResolvedValue({ ...membership, role: "admin" });
+    choreFindMany.mockResolvedValue([
+      chore({ id: "c3", title: "Bob's", assignees: [bob] }),
+      chore({ id: "c4", title: "Nobody's" }),
+      chore({ id: "c5", title: "Unclaimed", assignmentMode: "claim" }),
+      chore({ id: "c7", title: "Claimed by Bob", assignmentMode: "claim", assignees: [bob] }),
+    ]);
+
+    expect(await completable()).toEqual([]);
+  });
+
+  it("does not show on completed or skipped rows", async () => {
+    choreFindMany.mockResolvedValue([
+      chore({ id: "c8", title: "Done", status: "completed", assignees: [alice] }),
+      chore({ id: "c9", title: "Skipped", status: "skipped", assignees: [alice] }),
+    ]);
+
+    expect(await completable({ status: "completed" })).toEqual([]);
+  });
+
+  it("puts the message regions above the list and above the empty state", async () => {
+    let markup = await html();
+    expect(markup.indexOf('role="status"')).toBeLessThan(markup.indexOf("<ul"));
+
+    choreFindMany.mockResolvedValue([]);
+    markup = await html();
+    expect(markup).toContain('<div role="status"></div><div role="alert"></div>');
+    expect(markup.indexOf('role="alert"')).toBeLessThan(markup.indexOf("No chores match these filters."));
+  });
+});
+
 describe("/chores filter form across client-side navigations", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -354,5 +434,107 @@ describe("/chores filter form across client-side navigations", () => {
     expect(status().value).toBe("pending");
     expect(category().value).toBe("");
     expect(overdue().checked).toBe(false);
+  });
+});
+
+describe("/chores outcome message across server re-renders", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const alice = {
+    userId: "user_1",
+    user: { name: "Alice", email: "alice@example.com", memberships: [{ id: "membership_1" }] },
+  };
+  const mine = chore({ id: "chore_9", title: "Take out bins", assignees: [alice] });
+
+  beforeEach(() => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    completeChore.mockReset();
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  async function renderInto(params: Record<string, string> = {}) {
+    const tree = await render(params);
+    await act(async () => root.render(tree));
+  }
+
+  const status = () => container.querySelector('[role="status"]')!;
+  const alert = () => container.querySelector('[role="alert"]')!;
+
+  it("keeps the success message when the row leaves, the list empties and the filter form remounts", async () => {
+    choreFindMany.mockResolvedValue([mine]);
+    await renderInto();
+    const filterForm = container.querySelector("form");
+
+    completeChore.mockResolvedValue({ status: "success", message: 'Completed "Take out bins".' });
+    await act(async () => {
+      container.querySelector("li button")!.click();
+    });
+
+    expect(completeChore).toHaveBeenCalledTimes(1);
+    const posted = completeChore.mock.calls[0][1];
+    expect([...posted.keys()]).toEqual(["choreId"]);
+    expect(posted.get("choreId")).toBe("chore_9");
+    expect(status().textContent).toBe('Completed "Take out bins".');
+    expect(alert().textContent).toBe("");
+
+    // The re-render from the server after revalidation: the row is gone.
+    choreFindMany.mockResolvedValue([]);
+    vi.setSystemTime(new Date(NOW.getTime() + 5_000));
+    await renderInto();
+
+    expect(container.querySelector("form")).not.toBe(filterForm);
+    expect(container.textContent).toContain("No chores match these filters.");
+    expect(status().textContent).toBe('Completed "Take out bins".');
+  });
+
+  it("shows a refusal as an alert, replacing the previous message", async () => {
+    choreFindMany.mockResolvedValue([
+      mine,
+      chore({ id: "chore_8", title: "Hoover", assignees: [alice] }),
+    ]);
+    await renderInto();
+
+    completeChore.mockResolvedValueOnce({ status: "success", message: 'Completed "Take out bins".' });
+    await act(async () => {
+      container.querySelectorAll("li button")[0].click();
+    });
+    expect(status().textContent).toBe('Completed "Take out bins".');
+
+    completeChore.mockResolvedValueOnce({
+      status: "error",
+      message: "This chore has already been completed or skipped.",
+    });
+    await act(async () => {
+      container.querySelectorAll("li button")[1].click();
+    });
+
+    expect(status().textContent).toBe("");
+    expect(alert().textContent).toBe("This chore has already been completed or skipped.");
+  });
+
+  it("reads Completing… and is disabled while the request is in flight", async () => {
+    choreFindMany.mockResolvedValue([mine]);
+    await renderInto();
+    let finish!: (state: ChoreActionState) => void;
+    completeChore.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+
+    await act(async () => {
+      container.querySelector("li button")!.click();
+    });
+    const button = container.querySelector<HTMLButtonElement>("li button")!;
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Completing… "Take out bins"');
+
+    await act(async () => finish({ status: "error", message: "That chore no longer exists." }));
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe('Complete "Take out bins"');
+    expect(alert().textContent).toBe("That chore no longer exists.");
   });
 });

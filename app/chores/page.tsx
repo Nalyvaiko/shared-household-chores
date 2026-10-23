@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
+import { CompleteChoreButton } from "@/components/complete-chore-button";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { nativeSelectClassName } from "@/components/ui/native-select";
 import { requireHousehold, requireUser } from "@/lib/auth/guards";
 import { sortCategories } from "@/lib/category/sort";
+import { canComplete } from "@/lib/chore/complete";
 import { STATUS_OPTIONS } from "@/lib/chore/labels";
 import {
   CHORE_LIST_ORDER_BY,
@@ -134,18 +137,33 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
         filters={filters}
         categories={categories.map(({ id, name }) => ({ id, name }))}
       />
-      {chores.length > 0 ? (
-        <ChoreList chores={chores} viewerId={user.id} now={now} />
-      ) : householdHasChores ? (
-        <div className="flex flex-col items-start gap-2">
-          <p className="text-muted-foreground">No chores match these filters.</p>
-          <Link href="/chores?status=all" className="text-sm underline underline-offset-4">
-            Show all chores
-          </Link>
-        </div>
-      ) : (
-        <p className="text-muted-foreground">No chores yet.</p>
-      )}
+      {/* Unkeyed (unlike the form above) and outside the branches below, so
+          the outcome message survives the re-render, the completed row
+          leaving, and the list becoming empty. */}
+      <ChoreFeedbackProvider>
+        {chores.length > 0 ? (
+          <ChoreList
+            chores={chores}
+            viewerId={user.id}
+            now={now}
+            // Only the viewer's pending assigned or claimed chores; admins too.
+            actions={(chore) =>
+              canComplete(chore, user.id) ? (
+                <CompleteChoreButton choreId={chore.id} title={chore.title} />
+              ) : null
+            }
+          />
+        ) : householdHasChores ? (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-muted-foreground">No chores match these filters.</p>
+            <Link href="/chores?status=all" className="text-sm underline underline-offset-4">
+              Show all chores
+            </Link>
+          </div>
+        ) : (
+          <p className="text-muted-foreground">No chores yet.</p>
+        )}
+      </ChoreFeedbackProvider>
     </section>
   );
 }
