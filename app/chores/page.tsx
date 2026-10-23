@@ -124,7 +124,10 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
       <Button asChild>
         <Link href="/chores/new">New chore</Link>
       </Button>
+      {/* Keyed on the filters: a client-side navigation (Clear filters, Show
+          all chores) keeps the DOM, and React doesn't re-apply defaultValue. */}
       <ChoreFilterForm
+        key={`${filters.status} ${filters.overdueOnly} ${filters.category}`}
         filters={filters}
         categories={categories.map(({ id, name }) => ({ id, name }))}
       />
