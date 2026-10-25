@@ -159,7 +159,7 @@ describe("completeChoreInTransaction roll-over", () => {
     dueAt: new Date("2026-10-20T09:30:00.000Z"),
     categoryId: "category_1",
     priority: "high",
-    effort: "low",
+    effort: "small",
   };
 
   it("creates one pending copy of a recurring fixed chore with the same assignees, after the record", async () => {
@@ -176,7 +176,7 @@ describe("completeChoreInTransaction roll-over", () => {
         createdById: "user_2",
         title: "Take out bins",
         priority: "high",
-        effort: "low",
+        effort: "small",
         categoryId: "category_1",
         assignmentMode: "fixed",
         recurrence: "weekly",
