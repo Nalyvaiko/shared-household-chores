@@ -1,8 +1,11 @@
 import Link from "next/link";
 
+import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
+import { CompleteChoreButton } from "@/components/complete-chore-button";
 import { Button } from "@/components/ui/button";
 import { requireHousehold } from "@/lib/auth/guards";
+import { canComplete } from "@/lib/chore/complete";
 import { CHORE_LIST_ORDER_BY, choreListInclude, myChoresWhere } from "@/lib/chore/list";
 import { db } from "@/lib/db";
 
@@ -36,14 +39,28 @@ export default async function Home() {
         </Button>
         {chores.length > 0 ? allChoresLink : null}
       </div>
-      {chores.length > 0 ? (
-        <ChoreList chores={chores} viewerId={userId} now={now} />
-      ) : (
-        <div className="flex flex-col items-start gap-2">
-          <p className="text-muted-foreground">Nothing assigned to you right now.</p>
-          {allChoresLink}
-        </div>
-      )}
+      {/* Unkeyed and outside the branches below, so the outcome message stays
+          when the completed row leaves or the list becomes empty. */}
+      <ChoreFeedbackProvider>
+        {chores.length > 0 ? (
+          <ChoreList
+            chores={chores}
+            viewerId={userId}
+            now={now}
+            // Every row here is one of the caller's pending chores.
+            actions={(chore) =>
+              canComplete(chore, userId) ? (
+                <CompleteChoreButton choreId={chore.id} title={chore.title} />
+              ) : null
+            }
+          />
+        ) : (
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-muted-foreground">Nothing assigned to you right now.</p>
+            {allChoresLink}
+          </div>
+        )}
+      </ChoreFeedbackProvider>
     </section>
   );
 }

@@ -149,8 +149,37 @@ describe("/ page", () => {
     expect(html).toContain("My chores");
     expect(html).toMatch(/<a[^>]*href="\/chores\/new"[^>]*>New chore<\/a>/);
     expect(html).toMatch(/<a[^>]*href="\/chores"[^>]*>All household chores<\/a>/);
-    expect(html).not.toContain("<form");
+    // The only forms are the rows' Complete forms.
+    expect(html.match(/<form/g)).toHaveLength(3);
     expect(html).not.toContain("Nothing assigned to you right now.");
+  });
+
+  it("gives every row a Complete button named after its chore", async () => {
+    const html = renderToStaticMarkup(await Home());
+
+    const rows = [...html.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map((match) => match[1]);
+    expect(rows).toHaveLength(3);
+    for (const [index, title] of ["Overdue bins", "Upcoming hoovering", "Undated sorting"].entries()) {
+      expect(rows[index]).toContain(`<input type="hidden" name="choreId" value="chore_${index + 1}"/>`);
+      expect(rows[index]).toMatch(
+        new RegExp(`<button[^>]*type="submit"[^>]*>Complete<span class="sr-only"> &quot;${title}&quot;</span></button>`),
+      );
+    }
+    // The form posts only the chore id.
+    expect(rows[0].match(/<input/g)).toHaveLength(1);
+  });
+
+  it("renders the message regions above the list, and in the empty state", async () => {
+    let html = renderToStaticMarkup(await Home());
+    expect(html.indexOf('role="status"')).toBeLessThan(html.indexOf("<ul"));
+    expect(html.indexOf('role="alert"')).toBeLessThan(html.indexOf("<ul"));
+
+    choreFindMany.mockResolvedValue([]);
+    html = renderToStaticMarkup(await Home());
+    expect(html).toContain('<div role="status"></div><div role="alert"></div>');
+    expect(html.indexOf('role="status"')).toBeLessThan(
+      html.indexOf("Nothing assigned to you right now."),
+    );
   });
 
   it("renders the rows in query order, the undated chore last", async () => {
