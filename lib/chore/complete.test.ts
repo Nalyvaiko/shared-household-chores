@@ -7,7 +7,7 @@ const NOW = new Date("2026-10-23T12:00:00.000Z");
 
 const tx = {
   $queryRaw: vi.fn(),
-  chore: { findUnique: vi.fn(), update: vi.fn() },
+  chore: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
   completionRecord: { create: vi.fn() },
 };
 const client = tx as unknown as Prisma.TransactionClient;
@@ -18,9 +18,17 @@ function chore(overrides: Record<string, unknown> = {}) {
   return {
     id: "chore_1",
     householdId: "household_1",
+    createdById: "user_2",
+    categoryId: null,
     title: "Take out bins",
+    dueAt: null,
+    priority: "medium",
+    effort: "medium",
     status: "pending",
+    recurrence: "none",
     assignmentMode: "fixed",
+    createdAt: new Date("2026-10-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-10-01T00:00:00.000Z"),
     assignees: [{ userId: "user_1" }],
     ...overrides,
   };
@@ -29,6 +37,7 @@ function chore(overrides: Record<string, unknown> = {}) {
 function expectNothingWritten() {
   expect(tx.chore.update).not.toHaveBeenCalled();
   expect(tx.completionRecord.create).not.toHaveBeenCalled();
+  expect(tx.chore.create).not.toHaveBeenCalled();
 }
 
 beforeEach(() => {
@@ -38,6 +47,7 @@ beforeEach(() => {
     Promise.resolve({ ...chore(), ...data, assignees: undefined }),
   );
   tx.completionRecord.create.mockReset().mockResolvedValue({});
+  tx.chore.create.mockReset().mockResolvedValue({ id: "chore_2" });
 });
 
 describe("completeChoreInTransaction", () => {
@@ -140,6 +150,101 @@ describe("completeChoreInTransaction", () => {
 
     expect(await completeChoreInTransaction(client, input)).toEqual({ kind: "not-assignee" });
     expectNothingWritten();
+  });
+});
+
+describe("completeChoreInTransaction roll-over", () => {
+  const recurring = {
+    recurrence: "weekly",
+    dueAt: new Date("2026-10-20T09:30:00.000Z"),
+    categoryId: "category_1",
+    priority: "high",
+    effort: "low",
+  };
+
+  it("creates one pending copy of a recurring fixed chore with the same assignees, after the record", async () => {
+    tx.chore.findUnique.mockResolvedValue(
+      chore({ ...recurring, assignees: [{ userId: "user_1" }, { userId: "user_removed" }] }),
+    );
+
+    const outcome = await completeChoreInTransaction(client, input);
+
+    expect(tx.chore.create).toHaveBeenCalledTimes(1);
+    expect(tx.chore.create).toHaveBeenCalledWith({
+      data: {
+        householdId: "household_1",
+        createdById: "user_2",
+        title: "Take out bins",
+        priority: "high",
+        effort: "low",
+        categoryId: "category_1",
+        assignmentMode: "fixed",
+        recurrence: "weekly",
+        status: "pending",
+        dueAt: new Date("2026-10-27T09:30:00.000Z"),
+        assignees: { create: [{ userId: "user_1" }, { userId: "user_removed" }] },
+      },
+    });
+    expect(tx.completionRecord.create.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.chore.create.mock.invocationCallOrder[0],
+    );
+    // The original is only marked completed, as before; the outcome is still about it.
+    expect(tx.chore.update).toHaveBeenCalledTimes(1);
+    expect(tx.chore.update).toHaveBeenCalledWith({
+      where: { id: "chore_1" },
+      data: { status: "completed" },
+    });
+    expect(outcome).toMatchObject({ kind: "completed", chore: { id: "chore_1", status: "completed" } });
+  });
+
+  it("copies a null category and gives a chore without a due date one based on now", async () => {
+    tx.chore.findUnique.mockResolvedValue(chore({ recurrence: "daily" }));
+
+    await completeChoreInTransaction(client, input);
+
+    const { data } = tx.chore.create.mock.calls[0][0];
+    expect(data.categoryId).toBeNull();
+    expect(data.dueAt).toEqual(new Date("2026-10-24T12:00:00.000Z"));
+  });
+
+  it("creates the copy of a claim chore with no assignees", async () => {
+    tx.chore.findUnique.mockResolvedValue(
+      chore({ ...recurring, recurrence: "monthly", assignmentMode: "claim" }),
+    );
+
+    await completeChoreInTransaction(client, input);
+
+    expect(tx.chore.create).toHaveBeenCalledTimes(1);
+    const { data } = tx.chore.create.mock.calls[0][0];
+    expect(data).toMatchObject({ assignmentMode: "claim", recurrence: "monthly", status: "pending" });
+    expect(data.dueAt).toEqual(new Date("2026-11-20T09:30:00.000Z"));
+    expect(data).not.toHaveProperty("assignees");
+  });
+
+  it("creates nothing extra for a non-recurring chore", async () => {
+    expect((await completeChoreInTransaction(client, input)).kind).toBe("completed");
+    expect(tx.chore.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["gone (no row locked)", {}, []],
+    ["gone (another household)", { householdId: "household_9" }, null],
+    ["not-pending", { status: "completed" }, null],
+    ["unclaimed", { assignmentMode: "claim", assignees: [] }, null],
+    ["not-assignee", { assignees: [{ userId: "user_2" }] }, null],
+  ])("creates nothing on a %s refusal", async (_label, overrides, locked) => {
+    if (locked) tx.$queryRaw.mockResolvedValue(locked);
+    tx.chore.findUnique.mockResolvedValue(chore({ ...recurring, ...overrides }));
+
+    expect((await completeChoreInTransaction(client, input)).kind).not.toBe("completed");
+    expectNothingWritten();
+  });
+
+  it("rejects when creating the next occurrence rejects", async () => {
+    tx.chore.findUnique.mockResolvedValue(chore(recurring));
+    tx.chore.create.mockRejectedValue(new Error("insert failed"));
+
+    await expect(completeChoreInTransaction(client, input)).rejects.toThrow("insert failed");
   });
 });
 

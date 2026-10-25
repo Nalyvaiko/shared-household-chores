@@ -19,7 +19,7 @@ const findFirst = vi.fn();
 const tx = {
   $queryRaw: vi.fn(),
   membership: { findUnique: vi.fn() },
-  chore: { findUnique: vi.fn(), update: vi.fn() },
+  chore: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
   completionRecord: { create: vi.fn() },
 };
 const $transaction = vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx));
@@ -89,6 +89,7 @@ function lockQueries(): string[] {
 function expectNothingWritten() {
   expect(tx.chore.update).not.toHaveBeenCalled();
   expect(tx.completionRecord.create).not.toHaveBeenCalled();
+  expect(tx.chore.create).not.toHaveBeenCalled();
 }
 
 function expectListsRevalidated() {
@@ -120,6 +121,7 @@ beforeEach(() => {
     .mockReset()
     .mockImplementation(({ data }) => Promise.resolve({ ...chore(), assignees: undefined, ...data }));
   tx.completionRecord.create.mockReset().mockResolvedValue({ id: "record_1" });
+  tx.chore.create.mockReset().mockResolvedValue({ id: "chore_2" });
   redirect.mockClear();
   revalidatePath.mockClear();
 });
@@ -245,6 +247,27 @@ describe("completeChore", () => {
     tx.completionRecord.create.mockRejectedValue(new Error("connection lost"));
 
     await expect(completeChore(idle, form())).rejects.toThrow("connection lost");
+  });
+
+  it("rejects with the roll-over error when creating the next occurrence fails", async () => {
+    tx.chore.findUnique.mockResolvedValue(chore({ recurrence: "weekly" }));
+    const error = new Error("roll-over insert failed");
+    tx.chore.create.mockRejectedValue(error);
+
+    await expect(completeChore(idle, form())).rejects.toBe(error);
+    // The completion was attempted in the same transaction, which the throw rolls back.
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(tx.completionRecord.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the success message unchanged for a recurring chore", async () => {
+    tx.chore.findUnique.mockResolvedValue(chore({ recurrence: "daily" }));
+
+    const result = await completeChore(idle, form());
+
+    expect(result).toEqual({ status: "success", message: 'Completed "Take out bins".' });
+    expect(tx.chore.create).toHaveBeenCalledTimes(1);
+    expectListsRevalidated();
   });
 
   it.each([
