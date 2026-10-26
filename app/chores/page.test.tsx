@@ -30,9 +30,10 @@ const redirect = vi.fn((url: string) => {
 });
 vi.mock("next/navigation", () => ({ redirect }));
 
-// The rows' Complete forms post to this; the action has its own tests.
+// The rows' Complete and Skip forms post to these; the actions have their own tests.
 const completeChore = vi.fn<(prev: ChoreActionState, formData: FormData) => Promise<ChoreActionState>>();
-vi.mock("@/app/chores/actions", () => ({ completeChore }));
+const skipChore = vi.fn<(prev: ChoreActionState, formData: FormData) => Promise<ChoreActionState>>();
+vi.mock("@/app/chores/actions", () => ({ completeChore, skipChore }));
 
 const { default: ChoresPage, metadata } = await import("./page");
 
@@ -302,14 +303,13 @@ describe("/chores Complete button", () => {
   /** The titles of the rows that have a Complete button, in order. */
   async function completable(params: Record<string, string> = {}) {
     const doc = parse(await html(params));
-    return [...doc.querySelectorAll("li")]
-      .filter((row) => row.querySelector("form"))
-      .map((row) => {
-        const button = row.querySelector("button")!;
-        expect(button.textContent).toBe(`Complete "${row.querySelector("span")!.textContent}"`);
-        expect(row.querySelector<HTMLInputElement>('input[name="choreId"]')!.type).toBe("hidden");
-        return row.querySelector("span")!.textContent;
-      });
+    return [...doc.querySelectorAll("li")].flatMap((row) => {
+      const button = [...row.querySelectorAll("button")].find((b) => b.textContent!.startsWith("Complete"));
+      if (!button) return [];
+      expect(button.textContent).toBe(`Complete "${row.querySelector("span")!.textContent}"`);
+      expect(button.closest("form")!.querySelector<HTMLInputElement>('input[name="choreId"]')!.type).toBe("hidden");
+      return [row.querySelector("span")!.textContent];
+    });
   }
 
   beforeEach(() => {
@@ -363,6 +363,114 @@ describe("/chores Complete button", () => {
     markup = await html();
     expect(markup).toContain('<div role="status"></div><div role="alert"></div>');
     expect(markup.indexOf('role="alert"')).toBeLessThan(markup.indexOf("No chores match these filters."));
+  });
+});
+
+describe("/chores Skip disclosure", () => {
+  const bob = { userId: "user_2", user: { name: "Bob", email: "bob@example.com", memberships: [{ id: "m2" }] } };
+  const alice = {
+    userId: "user_1",
+    user: { name: "Alice", email: "alice@example.com", memberships: [{ id: "membership_1" }] },
+  };
+  const formerMember = {
+    userId: "user_9",
+    user: { name: "Carol", email: "carol@example.com", memberships: [] },
+  };
+  const note = "This chore repeats. Skipping it ends the series: no next occurrence will be created.";
+
+  /** Each row's title with the labels of its controls, in order. */
+  async function controls(params: Record<string, string> = {}) {
+    const doc = parse(await html(params));
+    return [...doc.querySelectorAll("li")].map((row) => {
+      // The actions slot is the row's last part, when there is one.
+      const slot = row.lastElementChild!.querySelector("form, details") ? row.lastElementChild! : null;
+      const labels = [...(slot?.children ?? [])].map((control) =>
+        control.tagName === "DETAILS"
+          ? control.querySelector("summary")!.textContent
+          : control.querySelector("button")!.textContent,
+      );
+      return [row.querySelector("span")!.textContent, labels];
+    });
+  }
+
+  beforeEach(() => {
+    choreFindMany.mockResolvedValue([
+      chore({ id: "c1", title: "Mine", assignees: [alice] }),
+      chore({ id: "c2", title: "Bob's", assignees: [bob] }),
+      chore({ id: "c3", title: "Nobody's" }),
+      chore({ id: "c4", title: "Unclaimed", assignmentMode: "claim" }),
+      chore({ id: "c5", title: "Claimed by Bob", assignmentMode: "claim", assignees: [bob] }),
+      chore({ id: "c6", title: "Carol's", assignees: [formerMember] }),
+      chore({ id: "c7", title: "Done", status: "completed", assignees: [alice] }),
+      chore({ id: "c8", title: "Skipped", status: "skipped", assignees: [alice] }),
+    ]);
+  });
+
+  it("is on every pending row for a member, after Complete or alone, and on no other row", async () => {
+    expect(await controls({ status: "all" })).toEqual([
+      ["Mine", ['Complete "Mine"', 'Skip "Mine"']],
+      ["Bob's", ['Skip "Bob\'s"']],
+      ["Nobody's", ['Skip "Nobody\'s"']],
+      ["Unclaimed", ['Skip "Unclaimed"']],
+      ["Claimed by Bob", ['Skip "Claimed by Bob"']],
+      ["Carol's", ['Skip "Carol\'s"']],
+      ["Done", []],
+      ["Skipped", []],
+    ]);
+  });
+
+  it("is on every pending row for an admin too", async () => {
+    membershipFindFirst.mockResolvedValue({ ...membership, role: "admin" });
+
+    const rows = await controls({ status: "all" });
+    expect(rows.filter(([, labels]) => labels.length > 0)).toHaveLength(6);
+  });
+
+  it("has no controls at all on completed and skipped rows", async () => {
+    choreFindMany.mockResolvedValue([
+      chore({ id: "c7", title: "Done", status: "completed", assignees: [alice] }),
+      chore({ id: "c8", title: "Skipped", status: "skipped", assignees: [alice] }),
+    ]);
+    const doc = parse(await html({ status: "all" }));
+
+    for (const row of doc.querySelectorAll("li")) {
+      expect(row.querySelector("details")).toBeNull();
+      expect(row.querySelector("form")).toBeNull();
+      expect(row.querySelector("button")).toBeNull();
+    }
+    expect(doc.querySelectorAll("li")[1].textContent).toContain("Skipped");
+  });
+
+  it("holds a labelled, required reason with no maxLength and a named submit", async () => {
+    const doc = parse(await html());
+    const details = doc.querySelector<HTMLDetailsElement>("li details")!;
+
+    expect(details.open).toBe(false);
+    const form = details.querySelector("form")!;
+    expect(form.querySelector<HTMLInputElement>('input[name="choreId"]')!.value).toBe("c1");
+    expect(form.querySelector<HTMLInputElement>('input[name="choreId"]')!.type).toBe("hidden");
+    const textarea = form.querySelector("textarea")!;
+    expect(textarea.id).toBe("skip-reason-c1");
+    expect(textarea.name).toBe("reason");
+    expect(textarea.required).toBe(true);
+    expect(textarea.hasAttribute("maxlength")).toBe(false);
+    expect(form.querySelector('label[for="skip-reason-c1"]')!.textContent).toBe("Reason for skipping");
+    expect(form.querySelector("button")!.textContent).toBe('Skip chore "Mine"');
+    expect(form.querySelector("button")!.disabled).toBe(false);
+    // Every row's reason field has its own id.
+    const ids = [...doc.querySelectorAll("textarea")].map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("shows the repeats note only for a recurring chore", async () => {
+    choreFindMany.mockResolvedValue([
+      chore({ id: "c1", title: "Daily", recurrence: "daily" }),
+      chore({ id: "c2", title: "Monthly", recurrence: "monthly" }),
+      chore({ id: "c3", title: "Once" }),
+    ]);
+    const forms = [...parse(await html()).querySelectorAll("details form")];
+
+    expect(forms.map((form) => form.textContent!.includes(note))).toEqual([true, true, false]);
   });
 });
 
@@ -466,6 +574,10 @@ describe("/chores outcome message across server re-renders", () => {
 
   const status = () => container.querySelector('[role="status"]')!;
   const alert = () => container.querySelector('[role="alert"]')!;
+  const completeButtons = () =>
+    [...container.querySelectorAll<HTMLButtonElement>("li button")].filter((b) =>
+      b.textContent!.startsWith("Complet"),
+    );
 
   it("keeps the success message when the row leaves, the list empties and the filter form remounts", async () => {
     choreFindMany.mockResolvedValue([mine]);
@@ -474,7 +586,7 @@ describe("/chores outcome message across server re-renders", () => {
 
     completeChore.mockResolvedValue({ status: "success", message: 'Completed "Take out bins".' });
     await act(async () => {
-      container.querySelector<HTMLButtonElement>("li button")!.click();
+      completeButtons()[0].click();
     });
 
     expect(completeChore).toHaveBeenCalledTimes(1);
@@ -503,7 +615,7 @@ describe("/chores outcome message across server re-renders", () => {
 
     completeChore.mockResolvedValueOnce({ status: "success", message: 'Completed "Take out bins".' });
     await act(async () => {
-      container.querySelectorAll<HTMLButtonElement>("li button")[0].click();
+      completeButtons()[0].click();
     });
     expect(status().textContent).toBe('Completed "Take out bins".');
 
@@ -512,7 +624,7 @@ describe("/chores outcome message across server re-renders", () => {
       message: "This chore has already been completed or skipped.",
     });
     await act(async () => {
-      container.querySelectorAll<HTMLButtonElement>("li button")[1].click();
+      completeButtons()[1].click();
     });
 
     expect(status().textContent).toBe("");
@@ -526,9 +638,9 @@ describe("/chores outcome message across server re-renders", () => {
     completeChore.mockReturnValue(new Promise((resolve) => (finish = resolve)));
 
     await act(async () => {
-      container.querySelector<HTMLButtonElement>("li button")!.click();
+      completeButtons()[0].click();
     });
-    const button = container.querySelector<HTMLButtonElement>("li button")!;
+    const button = completeButtons()[0];
     expect(button.disabled).toBe(true);
     expect(button.textContent).toBe('Completing… "Take out bins"');
 
@@ -536,5 +648,143 @@ describe("/chores outcome message across server re-renders", () => {
     expect(button.disabled).toBe(false);
     expect(button.textContent).toBe('Complete "Take out bins"');
     expect(alert().textContent).toBe("That chore no longer exists.");
+  });
+
+  describe("with Skip", () => {
+    const hoover = chore({ id: "chore_8", title: "Hoover" });
+    const rowOf = (choreId: string) =>
+      container.querySelector<HTMLTextAreaElement>(`#skip-reason-${choreId}`)!.closest("li")!;
+    const detailsOf = (choreId: string) => rowOf(choreId).querySelector("details")!;
+    const reasonOf = (choreId: string) =>
+      container.querySelector<HTMLTextAreaElement>(`#skip-reason-${choreId}`)!;
+    const skipButtonOf = (choreId: string) =>
+      detailsOf(choreId).querySelector<HTMLButtonElement>("form button")!;
+
+    async function submitSkip(choreId: string, reason: string) {
+      detailsOf(choreId).open = true;
+      reasonOf(choreId).value = reason;
+      await act(async () => {
+        skipButtonOf(choreId).click();
+      });
+    }
+
+    beforeEach(() => {
+      skipChore.mockReset();
+      choreFindMany.mockResolvedValue([mine, hoover]);
+    });
+
+    it("posts only the chore id and the reason", async () => {
+      await renderInto();
+      skipChore.mockResolvedValue({ status: "success", message: 'Skipped "Hoover".' });
+
+      await submitSkip("chore_8", "Away\nall week");
+
+      const posted = skipChore.mock.calls[0][1];
+      expect([...posted.keys()]).toEqual(["choreId", "reason"]);
+      expect(posted.get("choreId")).toBe("chore_8");
+      expect(posted.get("reason")).toBe("Away\nall week");
+      expect(status().textContent).toBe('Skipped "Hoover".');
+    });
+
+    it("reopens only the refused row, with the reason as submitted, also after the server re-render", async () => {
+      await renderInto();
+      detailsOf("chore_9").open = true;
+      const submitted = "  \n  ";
+      skipChore.mockResolvedValue({
+        status: "error",
+        message: "Enter a reason for skipping.",
+        skipDraft: { choreId: "chore_8", reason: submitted },
+      });
+
+      await submitSkip("chore_8", submitted);
+
+      expect(alert().textContent).toBe("Enter a reason for skipping.");
+      expect(status().textContent).toBe("");
+      expect(detailsOf("chore_8").open).toBe(true);
+      expect(reasonOf("chore_8").value).toBe(submitted);
+      // The other row is left as the user had it, and opens no draft.
+      expect(reasonOf("chore_9").value).toBe("");
+
+      // The re-render after revalidation keeps the draft.
+      vi.setSystemTime(new Date(NOW.getTime() + 5_000));
+      await renderInto();
+      expect(detailsOf("chore_8").open).toBe(true);
+      expect(reasonOf("chore_8").value).toBe(submitted);
+    });
+
+    it("reopens the row again after a second refusal of the same text", async () => {
+      await renderInto();
+      const tooLong = "x".repeat(501);
+      // A fresh object each time, as from the server.
+      skipChore.mockImplementation(async () => ({
+        status: "error",
+        message: "Skip reason must be at most 500 characters.",
+        skipDraft: { choreId: "chore_8", reason: tooLong },
+      }));
+
+      await submitSkip("chore_8", tooLong);
+      const first = alert().firstElementChild;
+      detailsOf("chore_8").open = false;
+      await submitSkip("chore_8", tooLong);
+
+      // A new node, so the identical message is announced again.
+      expect(alert().firstElementChild).not.toBe(first);
+      expect(alert().textContent).toBe("Skip reason must be at most 500 characters.");
+      expect(detailsOf("chore_8").open).toBe(true);
+      expect(reasonOf("chore_8").value).toBe(tooLong);
+    });
+
+    it("shows only the newest outcome: Skip replaces Complete and Complete replaces Skip", async () => {
+      await renderInto();
+
+      completeChore.mockResolvedValueOnce({ status: "success", message: 'Completed "Take out bins".' });
+      await act(async () => {
+        completeButtons()[0].click();
+      });
+      expect(status().textContent).toBe('Completed "Take out bins".');
+
+      skipChore.mockResolvedValueOnce({ status: "success", message: 'Skipped "Hoover".' });
+      await submitSkip("chore_8", "Away");
+      expect(status().textContent).toBe('Skipped "Hoover".');
+      expect(alert().textContent).toBe("");
+
+      skipChore.mockResolvedValueOnce({
+        status: "error",
+        message: "Skip reason can't contain control characters.",
+        skipDraft: { choreId: "chore_8", reason: "a\tb" },
+      });
+      await submitSkip("chore_8", "a\tb");
+      expect(status().textContent).toBe("");
+      expect(alert().textContent).toBe("Skip reason can't contain control characters.");
+      expect(detailsOf("chore_8").open).toBe(true);
+
+      completeChore.mockResolvedValueOnce({ status: "success", message: 'Completed "Take out bins".' });
+      await act(async () => {
+        completeButtons()[0].click();
+      });
+      expect(status().textContent).toBe('Completed "Take out bins".');
+      expect(alert().textContent).toBe("");
+      // The draft belonged to the replaced outcome, so the row closes again.
+      expect(detailsOf("chore_8").open).toBe(false);
+      expect(reasonOf("chore_8").value).toBe("");
+    });
+
+    it("reads Skipping… and is disabled only in the submitting row", async () => {
+      await renderInto();
+      let finish!: (state: ChoreActionState) => void;
+      skipChore.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+
+      await submitSkip("chore_8", "Away");
+      expect(skipButtonOf("chore_8").disabled).toBe(true);
+      expect(skipButtonOf("chore_8").textContent).toBe('Skipping… "Hoover"');
+      expect(skipButtonOf("chore_9").disabled).toBe(false);
+      expect(skipButtonOf("chore_9").textContent).toBe('Skip chore "Take out bins"');
+      expect(completeButtons()[0].disabled).toBe(false);
+
+      await act(async () => finish({ status: "error", message: "That chore no longer exists." }));
+      expect(skipButtonOf("chore_8").disabled).toBe(false);
+      expect(skipButtonOf("chore_8").textContent).toBe('Skip chore "Hoover"');
+      expect(alert().textContent).toBe("That chore no longer exists.");
+    });
   });
 });
