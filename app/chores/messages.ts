@@ -13,3 +13,7 @@ export const CHORE_NOT_ASSIGNEE_ERROR = "Only someone assigned to this chore can
 export function choreCompletedMessage(title: string): string {
   return `Completed "${title}".`;
 }
+
+export function choreSkippedMessage(title: string): string {
+  return `Skipped "${title}".`;
+}

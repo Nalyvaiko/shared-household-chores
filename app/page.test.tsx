@@ -149,8 +149,8 @@ describe("/ page", () => {
     expect(html).toContain("My chores");
     expect(html).toMatch(/<a[^>]*href="\/chores\/new"[^>]*>New chore<\/a>/);
     expect(html).toMatch(/<a[^>]*href="\/chores"[^>]*>All household chores<\/a>/);
-    // The only forms are the rows' Complete forms.
-    expect(html.match(/<form/g)).toHaveLength(3);
+    // The only forms are the rows' Complete and Skip forms.
+    expect(html.match(/<form/g)).toHaveLength(6);
     expect(html).not.toContain("Nothing assigned to you right now.");
   });
 
@@ -165,8 +165,61 @@ describe("/ page", () => {
         new RegExp(`<button[^>]*type="submit"[^>]*>Complete<span class="sr-only"> &quot;${title}&quot;</span></button>`),
       );
     }
-    // The form posts only the chore id.
-    expect(rows[0].match(/<input/g)).toHaveLength(1);
+    // The Complete form posts only the chore id.
+    const completeForm = rows[0].match(/<form[^>]*>([\s\S]*?)<\/form>/)![1];
+    expect(completeForm).toContain(">Complete<");
+    expect(completeForm.match(/<input/g)).toHaveLength(1);
+  });
+
+  it("gives every row a Skip disclosure after Complete, named after its chore", async () => {
+    const doc = new DOMParser().parseFromString(renderToStaticMarkup(await Home()), "text/html");
+
+    const rows = [...doc.querySelectorAll("li")];
+    expect(rows).toHaveLength(3);
+    for (const [index, title] of ["Overdue bins", "Upcoming hoovering", "Undated sorting"].entries()) {
+      const row = rows[index];
+      const details = row.querySelector("details")!;
+      expect(details.open).toBe(false);
+      // Complete's form comes before the disclosure in the actions slot.
+      const completeForm = row.querySelector("form")!;
+      expect(completeForm.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(details.querySelector("summary")!.textContent).toBe(`Skip "${title}"`);
+
+      const form = details.querySelector("form")!;
+      const hidden = form.querySelector<HTMLInputElement>('input[name="choreId"]')!;
+      expect(hidden.type).toBe("hidden");
+      expect(hidden.value).toBe(`chore_${index + 1}`);
+      const textarea = form.querySelector("textarea")!;
+      expect(textarea.name).toBe("reason");
+      expect(textarea.id).toBe(`skip-reason-chore_${index + 1}`);
+      expect(textarea.required).toBe(true);
+      expect(textarea.hasAttribute("maxlength")).toBe(false);
+      expect(textarea.value).toBe("");
+      const label = form.querySelector(`label[for="skip-reason-chore_${index + 1}"]`)!;
+      expect(label.textContent).toBe("Reason for skipping");
+      const submit = form.querySelector("button")!;
+      expect(submit.type).toBe("submit");
+      expect(submit.disabled).toBe(false);
+      expect(submit.textContent).toBe(`Skip chore "${title}"`);
+      expect(form.querySelectorAll("button")).toHaveLength(1);
+    }
+  });
+
+  it("shows the repeats note only in a recurring chore's Skip form", async () => {
+    choreFindMany.mockResolvedValue([
+      chore({ id: "chore_1", title: "Weekly bins", recurrence: "weekly" }),
+      chore({ id: "chore_2", title: "One-off sorting" }),
+    ]);
+    const doc = new DOMParser().parseFromString(renderToStaticMarkup(await Home()), "text/html");
+
+    const note = "This chore repeats. Skipping it ends the series: no next occurrence will be created.";
+    const [weekly, oneOff] = [...doc.querySelectorAll("details form")];
+    const paragraph = [...weekly.querySelectorAll("p")].find((p) => p.textContent === note)!;
+    expect(paragraph).toBeTruthy();
+    expect(
+      paragraph.compareDocumentPosition(weekly.querySelector("button")!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(oneOff.textContent).not.toContain("This chore repeats.");
   });
 
   it("renders the message regions above the list, and in the empty state", async () => {

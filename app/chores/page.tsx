@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
 import { CompleteChoreButton } from "@/components/complete-chore-button";
+import { SkipChoreForm } from "@/components/skip-chore-form";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { nativeSelectClassName } from "@/components/ui/native-select";
@@ -146,10 +147,21 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
             chores={chores}
             viewerId={user.id}
             now={now}
-            // Only the viewer's pending assigned or claimed chores; admins too.
+            // Complete only on the viewer's pending assigned or claimed chores (admins
+            // too); Skip on every pending chore.
             actions={(chore) =>
-              canComplete(chore, user.id) ? (
-                <CompleteChoreButton choreId={chore.id} title={chore.title} />
+              chore.status === "pending" ? (
+                <>
+                  {canComplete(chore, user.id) ? (
+                    <CompleteChoreButton choreId={chore.id} title={chore.title} />
+                  ) : null}
+                  {/* Any member may skip any pending chore. */}
+                  <SkipChoreForm
+                    choreId={chore.id}
+                    title={chore.title}
+                    recurring={chore.recurrence !== "none"}
+                  />
+                </>
               ) : null
             }
           />

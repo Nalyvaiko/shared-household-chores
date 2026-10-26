@@ -11,12 +11,16 @@ import {
   DUE_AT_INVALID_ERROR,
   DUE_AT_RANGE_ERROR,
   DUE_AT_TIME_ZONE_ERROR,
+  SKIP_REASON_CONTROL_ERROR,
+  SKIP_REASON_EMPTY_ERROR,
+  SKIP_REASON_TOO_LONG_ERROR,
   assignmentModeSchema,
   choreTitleSchema,
   effortSchema,
   parseDueAt,
   prioritySchema,
   recurrenceSchema,
+  skipReasonSchema,
 } from "@/lib/chore/validation";
 
 function titleErrors(value: unknown): string[] {
@@ -185,5 +189,57 @@ describe("parseDueAt", () => {
       success: false,
       error: DUE_AT_TIME_ZONE_ERROR,
     });
+  });
+});
+
+function reasonErrors(value: unknown): string[] {
+  const parsed = skipReasonSchema.safeParse(value);
+  return parsed.success ? [] : parsed.error.issues.map((issue) => issue.message);
+}
+
+describe("skipReasonSchema", () => {
+  it("trims both ends and keeps inner spaces", () => {
+    expect(skipReasonSchema.parse("  Away  this week \n")).toBe("Away  this week");
+  });
+
+  it("keeps an inner newline and turns CRLF and a lone CR into LF", () => {
+    expect(skipReasonSchema.parse("Away\nall week")).toBe("Away\nall week");
+    expect(skipReasonSchema.parse("\r\nAway\r\nall\rweek\r\n")).toBe("Away\nall\nweek");
+  });
+
+  it.each(["", "   ", "\n", "\r\n\r\n", " \n \r "])("rejects an empty reason (%j)", (value) => {
+    expect(reasonErrors(value)).toEqual([SKIP_REASON_EMPTY_ERROR]);
+  });
+
+  it.each([undefined, null, 42])("rejects a non-string (%j) with the empty message", (value) => {
+    expect(reasonErrors(value)).toEqual([SKIP_REASON_EMPTY_ERROR]);
+  });
+
+  it.each([
+    ["a tab", "Away\tall week"],
+    ["NUL", "Away\u0000"],
+    ["a vertical tab", "Away\u000ball week"],
+    ["ESC", "Away\u001b"],
+    ["DEL", "Away\u007f"],
+    ["U+0085 (NEL)", "Away\u0085now"],
+    ["U+009F", "Away\u009f"],
+  ])("rejects %s inside the reason", (_label, value) => {
+    expect(reasonErrors(value)).toEqual([SKIP_REASON_CONTROL_ERROR]);
+  });
+
+  it("accepts 500 code points, including 500 emoji (1000 UTF-16 units)", () => {
+    expect(reasonErrors("a".repeat(500))).toEqual([]);
+    expect(skipReasonSchema.parse("🧹".repeat(500))).toBe("🧹".repeat(500));
+  });
+
+  it("rejects 501 code points, including 501 emoji", () => {
+    expect(reasonErrors("a".repeat(501))).toEqual([SKIP_REASON_TOO_LONG_ERROR]);
+    expect(reasonErrors("🧹".repeat(501))).toEqual([SKIP_REASON_TOO_LONG_ERROR]);
+  });
+
+  it("counts the length after normalising", () => {
+    // 498 + CRLF (one LF after normalising) + 1 = 500.
+    expect(reasonErrors(`  ${"a".repeat(498)}\r\nb \r\n`)).toEqual([]);
+    expect(reasonErrors(`${"a".repeat(498)}\r\nbc`)).toEqual([SKIP_REASON_TOO_LONG_ERROR]);
   });
 });

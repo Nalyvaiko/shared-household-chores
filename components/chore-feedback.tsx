@@ -2,11 +2,23 @@
 
 import { createContext, useActionState, useContext, useState, type ReactNode } from "react";
 
-import { completeChore, type ChoreActionState } from "@/app/chores/actions";
+import { completeChore, skipChore, type ChoreActionState } from "@/app/chores/actions";
+
+/** A refused skip reason to put back into its row's form. */
+export type SkipDraft = {
+  choreId: string;
+  reason: string;
+  /** Changes with every outcome, so the form remounts with the draft each time. */
+  key: number;
+};
 
 type ChoreFeedback = {
   /** Form action for a row's Complete form (posts a hidden `choreId`). */
   completeAction: (formData: FormData) => void;
+  /** Form action for a row's Skip form (posts a hidden `choreId` and `reason`). */
+  skipAction: (formData: FormData) => void;
+  /** Set only while the newest outcome is a refused skip reason. */
+  skipDraft: SkipDraft | null;
 };
 
 const ChoreFeedbackContext = createContext<ChoreFeedback | null>(null);
@@ -24,33 +36,48 @@ const initialState: ChoreActionState = { status: "idle" };
  * another page.
  */
 export function ChoreFeedbackProvider({ children }: { children: ReactNode }) {
-  // The Server Action itself (not a client wrapper), so the forms still post
-  // without JavaScript.
-  const [state, completeAction] = useActionState(completeChore, initialState);
+  // The Server Actions themselves (not client wrappers), so the forms still
+  // post without JavaScript.
+  const [completeState, completeAction] = useActionState(completeChore, initialState);
+  const [skipState, skipAction] = useActionState(skipChore, initialState);
 
-  // Counts outcomes so that a repeated, identical message is a new node and
-  // gets announced again.
-  const [seen, setSeen] = useState({ state, count: 0 });
-  if (seen.state !== state) setSeen({ state, count: seen.count + 1 });
+  // Only the newest outcome of either action is shown. Counting outcomes also
+  // makes a repeated, identical message a new node, so it is announced again.
+  const [seen, setSeen] = useState(() => ({
+    complete: completeState,
+    skip: skipState,
+    // Without JavaScript the page comes back with one action's result.
+    latest: skipState.status !== "idle" ? skipState : completeState,
+    count: 0,
+  }));
+  let { latest, count } = seen;
+  if (seen.complete !== completeState || seen.skip !== skipState) {
+    latest = seen.skip !== skipState ? skipState : completeState;
+    count = seen.count + 1;
+    setSeen({ complete: completeState, skip: skipState, latest, count });
+  }
+
+  const skipDraft =
+    latest.status === "error" && latest.skipDraft ? { ...latest.skipDraft, key: count } : null;
 
   return (
-    <ChoreFeedbackContext.Provider value={{ completeAction }}>
+    <ChoreFeedbackContext.Provider value={{ completeAction, skipAction, skipDraft }}>
       <div className="flex w-full flex-col">
         {/* Both regions are always in the DOM so screen readers pick up changes. */}
         <div role="status">
-          {state.status === "success" ? (
-            <p key={seen.count} className="mb-4 rounded-md border px-4 py-3 text-sm break-words">
-              {state.message}
+          {latest.status === "success" ? (
+            <p key={count} className="mb-4 rounded-md border px-4 py-3 text-sm break-words">
+              {latest.message}
             </p>
           ) : null}
         </div>
         <div role="alert">
-          {state.status === "error" ? (
+          {latest.status === "error" ? (
             <p
-              key={seen.count}
+              key={count}
               className="mb-4 rounded-md border border-destructive px-4 py-3 text-sm break-words text-destructive"
             >
-              {state.message}
+              {latest.message}
             </p>
           ) : null}
         </div>

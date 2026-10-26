@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
 import { CompleteChoreButton } from "@/components/complete-chore-button";
+import { SkipChoreForm } from "@/components/skip-chore-form";
 import { Button } from "@/components/ui/button";
 import { requireHousehold } from "@/lib/auth/guards";
 import { canComplete } from "@/lib/chore/complete";
@@ -49,8 +50,18 @@ export default async function Home() {
             now={now}
             // Every row here is one of the caller's pending chores.
             actions={(chore) =>
-              canComplete(chore, userId) ? (
-                <CompleteChoreButton choreId={chore.id} title={chore.title} />
+              chore.status === "pending" ? (
+                <>
+                  {canComplete(chore, userId) ? (
+                    <CompleteChoreButton choreId={chore.id} title={chore.title} />
+                  ) : null}
+                  {/* Any member may skip any pending chore. */}
+                  <SkipChoreForm
+                    choreId={chore.id}
+                    title={chore.title}
+                    recurring={chore.recurrence !== "none"}
+                  />
+                </>
               ) : null
             }
           />
