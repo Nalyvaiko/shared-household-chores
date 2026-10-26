@@ -43,6 +43,36 @@ export const choreTitleSchema = z
     error: CHORE_TITLE_TOO_LONG_ERROR,
   });
 
+// Counted in code points like the title; the textarea has no `maxLength` for
+// the same reason.
+export const SKIP_REASON_MAX_LENGTH = 500;
+
+export const SKIP_REASON_EMPTY_ERROR = "Enter a reason for skipping.";
+export const SKIP_REASON_TOO_LONG_ERROR = `Skip reason must be at most ${SKIP_REASON_MAX_LENGTH} characters.`;
+export const SKIP_REASON_CONTROL_ERROR = "Skip reason can't contain control characters.";
+
+// The title's set minus LF: a reason may span lines.
+const REASON_CONTROL_CHARACTERS = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/;
+
+/**
+ * CRLF and lone CR become LF, then both ends are trimmed. Inner line breaks
+ * are kept. A non-string counts as empty.
+ */
+export const skipReasonSchema = z
+  .string({ error: SKIP_REASON_EMPTY_ERROR })
+  .overwrite((reason) => reason.replace(/\r\n?/g, "\n").trim())
+  .refine((reason) => reason.length > 0, {
+    error: SKIP_REASON_EMPTY_ERROR,
+    abort: true,
+  })
+  .refine((reason) => !REASON_CONTROL_CHARACTERS.test(reason), {
+    error: SKIP_REASON_CONTROL_ERROR,
+    abort: true,
+  })
+  .refine((reason) => codePointLength(reason) <= SKIP_REASON_MAX_LENGTH, {
+    error: SKIP_REASON_TOO_LONG_ERROR,
+  });
+
 // Listed in display order; the values match the Prisma enums.
 export const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
 export const EFFORTS = ["small", "medium", "large"] as const;
