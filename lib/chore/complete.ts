@@ -1,5 +1,7 @@
 import type { Chore, Prisma } from "@prisma/client";
 
+import { nextDueAt } from "@/lib/chore/recurrence";
+
 // Completing a chore, inside a transaction the caller opened. The caller has
 // already locked the Household row and re-read the caller's membership, so
 // the lock order is always Household → Chore (the same order every chore
@@ -41,8 +43,9 @@ export function canComplete(
 
 /**
  * Locks the chore row, re-reads it with its assignees, runs the checks in
- * order and, if they all pass, marks it completed and writes its
- * `CompletionRecord`. A second request for the same chore waits on the lock
+ * order and, if they all pass, marks it completed, writes its
+ * `CompletionRecord` and, for a recurring chore, creates its next pending
+ * occurrence. A second request for the same chore waits on the lock
  * and then sees `completed`.
  */
 export async function completeChoreInTransaction(
@@ -77,5 +80,29 @@ export async function completeChoreInTransaction(
   await tx.completionRecord.create({
     data: { choreId: chore.id, userId, completedAt: now },
   });
+
+  // Roll-over: a recurring chore gets its next pending occurrence in the same
+  // transaction, so a throw here rolls the completion back too. A fixed chore
+  // keeps the assignee set read under the lock (removed members included); a
+  // claim chore starts unclaimed.
+  if (chore.recurrence !== "none") {
+    await tx.chore.create({
+      data: {
+        householdId: chore.householdId,
+        createdById: chore.createdById,
+        title: chore.title,
+        priority: chore.priority,
+        effort: chore.effort,
+        categoryId: chore.categoryId,
+        assignmentMode: chore.assignmentMode,
+        recurrence: chore.recurrence,
+        status: "pending",
+        dueAt: nextDueAt(chore.recurrence, chore.dueAt, now),
+        ...(chore.assignmentMode === "fixed" && {
+          assignees: { create: chore.assignees.map((a) => ({ userId: a.userId })) },
+        }),
+      },
+    });
+  }
   return { kind: "completed", chore: completed };
 }
