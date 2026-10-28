@@ -198,6 +198,7 @@ Acceptance criteria:
 - The current claimant sees a "Release" action that removes their assignment.
 - A chore has at most one active claimant at a time.
 - Claim state is reflected in the list and dashboard views.
+- A claim chore held only by a former member can be claimed; claiming replaces the stale row.
 
 ## 20. Edit and delete a chore
 Goal: Chore details can be corrected, and chores can be removed.
