@@ -3,9 +3,11 @@ import Link from "next/link";
 import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
 import { CompleteChoreButton } from "@/components/complete-chore-button";
+import { ReleaseChoreButton } from "@/components/release-chore-button";
 import { SkipChoreForm } from "@/components/skip-chore-form";
 import { Button } from "@/components/ui/button";
 import { requireHousehold } from "@/lib/auth/guards";
+import { canRelease } from "@/lib/chore/claim";
 import { canComplete } from "@/lib/chore/complete";
 import { CHORE_LIST_ORDER_BY, choreListInclude, myChoresWhere } from "@/lib/chore/list";
 import { db } from "@/lib/db";
@@ -54,6 +56,11 @@ export default async function Home() {
                 <>
                   {canComplete(chore, userId) ? (
                     <CompleteChoreButton choreId={chore.id} title={chore.title} />
+                  ) : null}
+                  {/* Claim is never here: an unclaimed chore has no row for the
+                      viewer, so it is not on the dashboard. */}
+                  {canRelease(chore, userId) ? (
+                    <ReleaseChoreButton choreId={chore.id} title={chore.title} />
                   ) : null}
                   {/* Any member may skip any pending chore. */}
                   <SkipChoreForm

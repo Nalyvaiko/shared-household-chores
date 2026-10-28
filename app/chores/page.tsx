@@ -3,13 +3,16 @@ import Link from "next/link";
 
 import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
+import { ClaimChoreButton } from "@/components/claim-chore-button";
 import { CompleteChoreButton } from "@/components/complete-chore-button";
+import { ReleaseChoreButton } from "@/components/release-chore-button";
 import { SkipChoreForm } from "@/components/skip-chore-form";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { nativeSelectClassName } from "@/components/ui/native-select";
 import { requireHousehold, requireUser } from "@/lib/auth/guards";
 import { sortCategories } from "@/lib/category/sort";
+import { canClaim, canRelease } from "@/lib/chore/claim";
 import { canComplete } from "@/lib/chore/complete";
 import { STATUS_OPTIONS } from "@/lib/chore/labels";
 import {
@@ -148,12 +151,21 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
             viewerId={user.id}
             now={now}
             // Complete only on the viewer's pending assigned or claimed chores (admins
-            // too); Skip on every pending chore.
+            // too); Release only to a holder of the claim; Claim on a claim chore
+            // no current member holds; Skip on every pending chore. A claimable
+            // chore has no row for the viewer, so Claim never meets Complete or
+            // Release.
             actions={(chore) =>
               chore.status === "pending" ? (
                 <>
                   {canComplete(chore, user.id) ? (
                     <CompleteChoreButton choreId={chore.id} title={chore.title} />
+                  ) : null}
+                  {canRelease(chore, user.id) ? (
+                    <ReleaseChoreButton choreId={chore.id} title={chore.title} />
+                  ) : null}
+                  {canClaim(chore) ? (
+                    <ClaimChoreButton choreId={chore.id} title={chore.title} />
                   ) : null}
                   {/* Any member may skip any pending chore. */}
                   <SkipChoreForm

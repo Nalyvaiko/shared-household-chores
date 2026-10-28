@@ -2,7 +2,13 @@
 
 import { createContext, useActionState, useContext, useState, type ReactNode } from "react";
 
-import { completeChore, skipChore, type ChoreActionState } from "@/app/chores/actions";
+import {
+  claimChore,
+  completeChore,
+  releaseChore,
+  skipChore,
+  type ChoreActionState,
+} from "@/app/chores/actions";
 
 /** A refused skip reason to put back into its row's form. */
 export type SkipDraft = {
@@ -17,6 +23,10 @@ type ChoreFeedback = {
   completeAction: (formData: FormData) => void;
   /** Form action for a row's Skip form (posts a hidden `choreId` and `reason`). */
   skipAction: (formData: FormData) => void;
+  /** Form action for a row's Claim form (posts a hidden `choreId`). */
+  claimAction: (formData: FormData) => void;
+  /** Form action for a row's Release form (posts a hidden `choreId`). */
+  releaseAction: (formData: FormData) => void;
   /** Set only while the newest outcome is a refused skip reason. */
   skipDraft: SkipDraft | null;
 };
@@ -24,6 +34,25 @@ type ChoreFeedback = {
 const ChoreFeedbackContext = createContext<ChoreFeedback | null>(null);
 
 const initialState: ChoreActionState = { status: "idle" };
+
+const ACTION_NAMES = ["complete", "skip", "claim", "release"] as const;
+
+/** Each row action's latest state, by action. */
+type ActionStates = Record<(typeof ACTION_NAMES)[number], ChoreActionState>;
+
+/**
+ * The outcome to show when the page loads. Without JavaScript the page comes
+ * back from a post with at most one action's result; otherwise all are idle.
+ */
+function loadedOutcome(states: ActionStates): ChoreActionState {
+  return ACTION_NAMES.map((name) => states[name]).find((s) => s.status !== "idle") ?? initialState;
+}
+
+/** The new state of the action that returned since `before`, or null if none did. */
+function changedOutcome(before: ActionStates, after: ActionStates): ChoreActionState | null {
+  const name = ACTION_NAMES.find((n) => before[n] !== after[n]);
+  return name ? after[name] : null;
+}
 
 /**
  * Holds the chore row actions' state for a page and renders their outcome in
@@ -40,28 +69,34 @@ export function ChoreFeedbackProvider({ children }: { children: ReactNode }) {
   // post without JavaScript.
   const [completeState, completeAction] = useActionState(completeChore, initialState);
   const [skipState, skipAction] = useActionState(skipChore, initialState);
-
-  // Only the newest outcome of either action is shown. Counting outcomes also
-  // makes a repeated, identical message a new node, so it is announced again.
-  const [seen, setSeen] = useState(() => ({
+  const [claimState, claimAction] = useActionState(claimChore, initialState);
+  const [releaseState, releaseAction] = useActionState(releaseChore, initialState);
+  const states: ActionStates = {
     complete: completeState,
     skip: skipState,
-    // Without JavaScript the page comes back with one action's result.
-    latest: skipState.status !== "idle" ? skipState : completeState,
-    count: 0,
-  }));
+    claim: claimState,
+    release: releaseState,
+  };
+
+  // Only the newest outcome of any action is shown. Counting outcomes also
+  // makes a repeated, identical message a new node, so it is announced again.
+  const [seen, setSeen] = useState(() => ({ states, latest: loadedOutcome(states), count: 0 }));
   let { latest, count } = seen;
-  if (seen.complete !== completeState || seen.skip !== skipState) {
-    latest = seen.skip !== skipState ? skipState : completeState;
+  const changed = changedOutcome(seen.states, states);
+  if (changed) {
+    latest = changed;
     count = seen.count + 1;
-    setSeen({ complete: completeState, skip: skipState, latest, count });
+    setSeen({ states, latest, count });
   }
 
+  // A newer outcome of any other kind replaces a refused skip, so its draft closes.
   const skipDraft =
     latest.status === "error" && latest.skipDraft ? { ...latest.skipDraft, key: count } : null;
 
   return (
-    <ChoreFeedbackContext.Provider value={{ completeAction, skipAction, skipDraft }}>
+    <ChoreFeedbackContext.Provider
+      value={{ completeAction, skipAction, claimAction, releaseAction, skipDraft }}
+    >
       <div className="flex w-full flex-col">
         {/* Both regions are always in the DOM so screen readers pick up changes. */}
         <div role="status">

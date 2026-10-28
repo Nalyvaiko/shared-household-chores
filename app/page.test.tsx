@@ -149,8 +149,8 @@ describe("/ page", () => {
     expect(html).toContain("My chores");
     expect(html).toMatch(/<a[^>]*href="\/chores\/new"[^>]*>New chore<\/a>/);
     expect(html).toMatch(/<a[^>]*href="\/chores"[^>]*>All household chores<\/a>/);
-    // The only forms are the rows' Complete and Skip forms.
-    expect(html.match(/<form/g)).toHaveLength(6);
+    // The only forms are the rows' Complete and Skip forms, and Release on the claim chore.
+    expect(html.match(/<form/g)).toHaveLength(7);
     expect(html).not.toContain("Nothing assigned to you right now.");
   });
 
@@ -203,6 +203,44 @@ describe("/ page", () => {
       expect(submit.textContent).toBe(`Skip chore "${title}"`);
       expect(form.querySelectorAll("button")).toHaveLength(1);
     }
+  });
+
+  it("gives Release only on the viewer's claim chores, between Complete and Skip, and never Claim", async () => {
+    const bob = { userId: "user_2", user: { name: "Bob", email: "bob@example.com", memberships: [{ id: "m2" }] } };
+    const formerBob = { userId: "user_9", user: { name: "Bob", email: "bob@example.com", memberships: [] } };
+    choreFindMany.mockResolvedValue([
+      chore({ id: "chore_1", title: "Fixed bins" }),
+      chore({ id: "chore_2", title: "Claimed hoovering", assignmentMode: "claim" }),
+      chore({ id: "chore_3", title: "Shared claim", assignmentMode: "claim", assignees: [bob, me] }),
+      chore({ id: "chore_4", title: "Claim with former", assignmentMode: "claim", assignees: [formerBob, me] }),
+    ]);
+    const doc = new DOMParser().parseFromString(renderToStaticMarkup(await Home()), "text/html");
+
+    const controls = [...doc.querySelectorAll("li")].map((row) =>
+      [...row.lastElementChild!.children].map((control) =>
+        control.tagName === "DETAILS"
+          ? control.querySelector("summary")!.textContent
+          : control.querySelector("button")!.textContent,
+      ),
+    );
+    expect(controls).toEqual([
+      ['Complete "Fixed bins"', 'Skip "Fixed bins"'],
+      ['Complete "Claimed hoovering"', 'Release "Claimed hoovering"', 'Skip "Claimed hoovering"'],
+      ['Complete "Shared claim"', 'Release "Shared claim"', 'Skip "Shared claim"'],
+      ['Complete "Claim with former"', 'Release "Claim with former"', 'Skip "Claim with former"'],
+    ]);
+
+    const release = [...doc.querySelectorAll("li button")].find(
+      (b) => b.textContent === 'Release "Claimed hoovering"',
+    )!;
+    expect(release.getAttribute("data-variant")).toBe("outline");
+    expect(release.getAttribute("data-size")).toBe("sm");
+    expect(release.querySelector(".sr-only")!.textContent).toBe(' "Claimed hoovering"');
+    const form = release.closest("form")!;
+    expect(form.querySelectorAll("input")).toHaveLength(1);
+    expect(form.querySelector<HTMLInputElement>('input[name="choreId"]')!.type).toBe("hidden");
+    expect(form.querySelector<HTMLInputElement>('input[name="choreId"]')!.value).toBe("chore_2");
+    expect(doc.body.textContent).not.toMatch(/\bClaim "/);
   });
 
   it("shows the repeats note only in a recurring chore's Skip form", async () => {

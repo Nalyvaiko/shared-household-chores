@@ -30,10 +30,13 @@ const redirect = vi.fn((url: string) => {
 });
 vi.mock("next/navigation", () => ({ redirect }));
 
-// The rows' Complete and Skip forms post to these; the actions have their own tests.
-const completeChore = vi.fn<(prev: ChoreActionState, formData: FormData) => Promise<ChoreActionState>>();
-const skipChore = vi.fn<(prev: ChoreActionState, formData: FormData) => Promise<ChoreActionState>>();
-vi.mock("@/app/chores/actions", () => ({ completeChore, skipChore }));
+// The rows' forms post to these; the actions have their own tests.
+type RowAction = (prev: ChoreActionState, formData: FormData) => Promise<ChoreActionState>;
+const completeChore = vi.fn<RowAction>();
+const skipChore = vi.fn<RowAction>();
+const claimChore = vi.fn<RowAction>();
+const releaseChore = vi.fn<RowAction>();
+vi.mock("@/app/chores/actions", () => ({ completeChore, skipChore, claimChore, releaseChore }));
 
 const { default: ChoresPage, metadata } = await import("./page");
 
@@ -411,7 +414,7 @@ describe("/chores Skip disclosure", () => {
       ["Mine", ['Complete "Mine"', 'Skip "Mine"']],
       ["Bob's", ['Skip "Bob\'s"']],
       ["Nobody's", ['Skip "Nobody\'s"']],
-      ["Unclaimed", ['Skip "Unclaimed"']],
+      ["Unclaimed", ['Claim "Unclaimed"', 'Skip "Unclaimed"']],
       ["Claimed by Bob", ['Skip "Claimed by Bob"']],
       ["Carol's", ['Skip "Carol\'s"']],
       ["Done", []],
@@ -471,6 +474,96 @@ describe("/chores Skip disclosure", () => {
     const forms = [...parse(await html()).querySelectorAll("details form")];
 
     expect(forms.map((form) => form.textContent!.includes(note))).toEqual([true, true, false]);
+  });
+});
+
+describe("/chores Claim and Release buttons", () => {
+  const alice = {
+    userId: "user_1",
+    user: { name: "Alice", email: "alice@example.com", memberships: [{ id: "membership_1" }] },
+  };
+  const bob = { userId: "user_2", user: { name: "Bob", email: "bob@example.com", memberships: [{ id: "m2" }] } };
+  const formerBob = { userId: "user_9", user: { name: "Bob", email: "bob@example.com", memberships: [] } };
+
+  /** Each row's title, assignee line and the labels of its controls, in order. */
+  async function rows(params: Record<string, string> = { status: "all" }) {
+    const doc = parse(await html(params));
+    return [...doc.querySelectorAll("li")].map((row) => {
+      const slot = row.lastElementChild!.querySelector("form, details") ? row.lastElementChild! : null;
+      const labels = [...(slot?.children ?? [])].map((control) =>
+        control.tagName === "DETAILS"
+          ? control.querySelector("summary")!.textContent
+          : control.querySelector("button")!.textContent,
+      );
+      return [row.querySelector("span")!.textContent, labels];
+    });
+  }
+
+  const claimRows = [
+    chore({ id: "c1", title: "Unclaimed", assignmentMode: "claim" }),
+    chore({ id: "c2", title: "Former Bob's", assignmentMode: "claim", assignees: [formerBob] }),
+    chore({ id: "c3", title: "Mine", assignmentMode: "claim", assignees: [alice] }),
+    chore({ id: "c4", title: "Bob's", assignmentMode: "claim", assignees: [bob] }),
+    chore({ id: "c5", title: "Bob's and former", assignmentMode: "claim", assignees: [formerBob, bob] }),
+    chore({ id: "c6", title: "Bob's and mine", assignmentMode: "claim", assignees: [bob, alice] }),
+    chore({ id: "c7", title: "Fixed mine", assignees: [alice] }),
+    chore({ id: "c8", title: "Fixed nobody's" }),
+    chore({ id: "c9", title: "Claimed done", status: "completed", assignmentMode: "claim", assignees: [alice] }),
+    chore({ id: "c10", title: "Unclaimed skipped", status: "skipped", assignmentMode: "claim" }),
+  ];
+
+  beforeEach(() => {
+    choreFindMany.mockResolvedValue(claimRows);
+  });
+
+  it.each(["member", "admin"])(
+    "shows Claim only on claimable rows and Release only to a holder, Complete, Release, Skip in order (%s)",
+    async (role) => {
+      membershipFindFirst.mockResolvedValue({ ...membership, role });
+
+      expect(await rows()).toEqual([
+        ["Unclaimed", ['Claim "Unclaimed"', 'Skip "Unclaimed"']],
+        ["Former Bob's", ['Claim "Former Bob\'s"', 'Skip "Former Bob\'s"']],
+        ["Mine", ['Complete "Mine"', 'Release "Mine"', 'Skip "Mine"']],
+        ["Bob's", ['Skip "Bob\'s"']],
+        ["Bob's and former", ['Skip "Bob\'s and former"']],
+        ["Bob's and mine", ['Complete "Bob\'s and mine"', 'Release "Bob\'s and mine"', 'Skip "Bob\'s and mine"']],
+        ["Fixed mine", ['Complete "Fixed mine"', 'Skip "Fixed mine"']],
+        ["Fixed nobody's", ['Skip "Fixed nobody\'s"']],
+        ["Claimed done", []],
+        ["Unclaimed skipped", []],
+      ]);
+    },
+  );
+
+  it("shows the former member's claim on a claimable row", async () => {
+    const doc = parse(await html());
+    const row = [...doc.querySelectorAll("li")][1];
+    expect(row.textContent).toContain("Claimed by Bob (former member)");
+  });
+
+  it("renders single-button forms posting a hidden choreId, Claim default and Release outline", async () => {
+    const doc = parse(await html());
+    const byLabel = (label: string) =>
+      [...doc.querySelectorAll("li form button")].find((b) => b.textContent === label)!;
+
+    for (const [label, choreId, variant] of [
+      ['Claim "Unclaimed"', "c1", "default"],
+      ['Release "Mine"', "c3", "outline"],
+    ]) {
+      const button = byLabel(label);
+      expect(button.getAttribute("type")).toBe("submit");
+      expect(button.getAttribute("data-variant")).toBe(variant);
+      expect(button.getAttribute("data-size")).toBe("sm");
+      expect(button.querySelector(".sr-only")!.textContent).toBe(` "${label.split('"')[1]}"`);
+      const form = button.closest("form")!;
+      expect(form.querySelectorAll("button")).toHaveLength(1);
+      const inputs = form.querySelectorAll("input");
+      expect(inputs).toHaveLength(1);
+      expect(inputs[0].type).toBe("hidden");
+      expect(inputs[0].name).toBe("choreId");
+      expect(inputs[0].value).toBe(choreId);
+    }
   });
 });
 
@@ -785,6 +878,139 @@ describe("/chores outcome message across server re-renders", () => {
       expect(skipButtonOf("chore_8").disabled).toBe(false);
       expect(skipButtonOf("chore_8").textContent).toBe('Skip chore "Hoover"');
       expect(alert().textContent).toBe("That chore no longer exists.");
+    });
+  });
+
+  describe("with Claim and Release", () => {
+    const unclaimed = chore({ id: "chore_7", title: "Water plants", assignmentMode: "claim" });
+    const claimedByMe = chore({ id: "chore_6", title: "Mop floor", assignmentMode: "claim", assignees: [alice] });
+    const reasonOf = (choreId: string) =>
+      container.querySelector<HTMLTextAreaElement>(`#skip-reason-${choreId}`)!;
+    const detailsOf = (choreId: string) => reasonOf(choreId).closest("details")!;
+    const skipButtonOf = (choreId: string) =>
+      detailsOf(choreId).querySelector<HTMLButtonElement>("form button")!;
+    const buttonNamed = (label: string) =>
+      [...container.querySelectorAll<HTMLButtonElement>("li button")].find((b) => b.textContent === label);
+    const click = async (label: string) => {
+      await act(async () => {
+        buttonNamed(label)!.click();
+      });
+    };
+
+    beforeEach(() => {
+      claimChore.mockReset();
+      releaseChore.mockReset();
+      skipChore.mockReset();
+      choreFindMany.mockResolvedValue([mine, unclaimed, claimedByMe]);
+    });
+
+    it("posts only the chore id, and the row reflects the claim after the server re-render", async () => {
+      await renderInto();
+      claimChore.mockResolvedValue({ status: "success", message: 'Claimed "Water plants".' });
+
+      await click('Claim "Water plants"');
+
+      const posted = claimChore.mock.calls[0][1];
+      expect([...posted.keys()]).toEqual(["choreId"]);
+      expect(posted.get("choreId")).toBe("chore_7");
+      expect(status().textContent).toBe('Claimed "Water plants".');
+
+      choreFindMany.mockResolvedValue([mine, { ...unclaimed, assignees: [alice] }, claimedByMe]);
+      vi.setSystemTime(new Date(NOW.getTime() + 5_000));
+      await renderInto();
+      expect(buttonNamed('Claim "Water plants"')).toBeUndefined();
+      expect(buttonNamed('Complete "Water plants"')).toBeDefined();
+      expect(buttonNamed('Release "Water plants"')).toBeDefined();
+      expect(status().textContent).toBe('Claimed "Water plants".');
+    });
+
+    it("reads Claiming… / Releasing… and is disabled only in the submitting row", async () => {
+      await renderInto();
+      let finishClaim!: (state: ChoreActionState) => void;
+      claimChore.mockReturnValue(new Promise((resolve) => (finishClaim = resolve)));
+
+      await click('Claim "Water plants"');
+      const claim = buttonNamed('Claiming… "Water plants"')!;
+      expect(claim.disabled).toBe(true);
+      expect(buttonNamed('Release "Mop floor"')!.disabled).toBe(false);
+      expect(buttonNamed('Complete "Mop floor"')!.disabled).toBe(false);
+      await act(async () => finishClaim({ status: "error", message: "Someone else has already claimed this chore." }));
+      expect(claim.disabled).toBe(false);
+      expect(claim.textContent).toBe('Claim "Water plants"');
+      expect(alert().textContent).toBe("Someone else has already claimed this chore.");
+
+      let finishRelease!: (state: ChoreActionState) => void;
+      releaseChore.mockReturnValue(new Promise((resolve) => (finishRelease = resolve)));
+      await click('Release "Mop floor"');
+      const release = buttonNamed('Releasing… "Mop floor"')!;
+      expect(release.disabled).toBe(true);
+      expect(buttonNamed('Claim "Water plants"')!.disabled).toBe(false);
+      await act(async () => finishRelease({ status: "success", message: 'Released "Mop floor".' }));
+      expect(release.textContent).toBe('Release "Mop floor"');
+      expect(status().textContent).toBe('Released "Mop floor".');
+      expect(alert().textContent).toBe("");
+    });
+
+    it("shows only the newest outcome across Complete, Skip, Claim and Release, announcing a repeat again", async () => {
+      await renderInto();
+
+      completeChore.mockResolvedValueOnce({ status: "success", message: 'Completed "Take out bins".' });
+      await click('Complete "Take out bins"');
+      expect(status().textContent).toBe('Completed "Take out bins".');
+
+      claimChore.mockResolvedValueOnce({ status: "success", message: 'Claimed "Water plants".' });
+      await click('Claim "Water plants"');
+      expect(status().textContent).toBe('Claimed "Water plants".');
+
+      releaseChore.mockResolvedValueOnce({ status: "error", message: "You haven't claimed this chore." });
+      await click('Release "Mop floor"');
+      expect(status().textContent).toBe("");
+      expect(alert().textContent).toBe("You haven't claimed this chore.");
+
+      skipChore.mockResolvedValueOnce({ status: "success", message: 'Skipped "Mop floor".' });
+      detailsOf("chore_6").open = true;
+      reasonOf("chore_6").value = "Away";
+      await act(async () => {
+        skipButtonOf("chore_6").click();
+      });
+      expect(status().textContent).toBe('Skipped "Mop floor".');
+      expect(alert().textContent).toBe("");
+
+      releaseChore.mockResolvedValueOnce({ status: "success", message: 'Released "Mop floor".' });
+      await click('Release "Mop floor"');
+      expect(status().textContent).toBe('Released "Mop floor".');
+      const first = status().firstElementChild;
+
+      releaseChore.mockResolvedValueOnce({ status: "success", message: 'Released "Mop floor".' });
+      await click('Release "Mop floor"');
+      expect(status().firstElementChild).not.toBe(first);
+      expect(status().textContent).toBe('Released "Mop floor".');
+    });
+
+    it.each([
+      ["Claim", 'Claim "Water plants"', claimChore, 'Claimed "Water plants".'],
+      ["Release", 'Release "Mop floor"', releaseChore, 'Released "Mop floor".'],
+    ])("closes a reopened Skip draft when a %s outcome arrives", async (_label, button, action, message) => {
+      await renderInto();
+      skipChore.mockResolvedValue({
+        status: "error",
+        message: "Enter a reason for skipping.",
+        skipDraft: { choreId: "chore_9", reason: "  " },
+      });
+      detailsOf("chore_9").open = true;
+      reasonOf("chore_9").value = "  ";
+      await act(async () => {
+        skipButtonOf("chore_9").click();
+      });
+      expect(detailsOf("chore_9").open).toBe(true);
+
+      action.mockResolvedValueOnce({ status: "success", message });
+      await click(button);
+
+      expect(status().textContent).toBe(message);
+      expect(alert().textContent).toBe("");
+      expect(detailsOf("chore_9").open).toBe(false);
+      expect(reasonOf("chore_9").value).toBe("");
     });
   });
 });
