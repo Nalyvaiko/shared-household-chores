@@ -568,6 +568,8 @@ describe("deleteChore", () => {
     expect(await remove()).toEqual({ error: CHORE_GONE_ERROR });
     expect(await remove("")).toEqual({ error: CHORE_GONE_ERROR });
     expectNothingWritten();
+    // A revalidation would re-render the edit page as a 404 over the message.
+    expect(revalidatePath).not.toHaveBeenCalled();
   });
 
   it("redirects a caller removed since the page loaded", async () => {

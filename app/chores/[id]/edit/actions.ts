@@ -313,8 +313,10 @@ export async function deleteChore(
     redirect("/household/new");
   }
   if (outcome.kind === "not-admin") return { error: ADMIN_ONLY_ERROR };
+  // Not revalidated: that would re-render this page, whose chore is gone, as
+  // a 404 instead of showing the message next to the control.
+  if (outcome.kind === "gone") return { error: CHORE_GONE_ERROR };
   revalidatePath("/");
   revalidatePath(CHORES_PATH);
-  if (outcome.kind === "gone") return { error: CHORE_GONE_ERROR };
   redirect(`${CHORES_PATH}?notice=deleted`);
 }
