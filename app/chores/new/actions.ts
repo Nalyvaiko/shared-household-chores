@@ -9,6 +9,7 @@ import {
   CHORE_CATEGORY_GONE_ERROR,
 } from "@/app/chores/new/messages";
 import { requireHousehold, type CurrentHousehold } from "@/lib/auth/guards";
+import { categoryBelongs, nonMemberIds } from "@/lib/chore/references";
 import {
   assignmentModeSchema,
   choreTitleSchema,
@@ -75,35 +76,6 @@ async function lockAndReadCaller(tx: Prisma.TransactionClient, current: CurrentH
   return tx.membership.findUnique({
     where: { userId_householdId: { userId: current.membership.userId, householdId } },
   });
-}
-
-/** Whether the id names one of this household's categories. */
-async function categoryBelongs(
-  client: Pick<Prisma.TransactionClient, "category">,
-  categoryId: string,
-  householdId: string,
-): Promise<boolean> {
-  const category = await client.category.findUnique({ where: { id: categoryId } });
-  // Another household's id gets the same answer as an unknown one.
-  return category !== null && category.householdId === householdId;
-}
-
-/**
- * The ids that are not a current member of the household: unknown, empty,
- * another household's user, or removed. Older assignee rows don't count.
- */
-async function nonMemberIds(
-  client: Pick<Prisma.TransactionClient, "membership">,
-  userIds: string[],
-  householdId: string,
-): Promise<string[]> {
-  if (userIds.length === 0) return [];
-  const rows = await client.membership.findMany({
-    where: { householdId, userId: { in: userIds } },
-    select: { userId: true },
-  });
-  const members = new Set(rows.map((row) => row.userId));
-  return userIds.filter((id) => !members.has(id));
 }
 
 export async function createChore(

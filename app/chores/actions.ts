@@ -1,6 +1,5 @@
 "use server";
 
-import { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -27,8 +26,8 @@ import {
 } from "@/lib/chore/claim";
 import { completeChoreInTransaction, type CompleteChoreOutcome } from "@/lib/chore/complete";
 import { skipChoreInTransaction, type SkipChoreOutcome } from "@/lib/chore/skip";
+import { inHouseholdTransaction } from "@/lib/chore/transaction";
 import { skipReasonSchema } from "@/lib/chore/validation";
-import { db } from "@/lib/db";
 
 /** The outcome of a chore row action, shown in the page's message region. */
 export type ChoreActionState =
@@ -64,10 +63,6 @@ const REFUSALS = {
   string
 >;
 
-function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
-}
-
 /**
  * A unique violation for Complete and Skip: `CompletionRecord.choreId` and
  * `SkipRecord.choreId` are unique (one record per chore), so another request
@@ -84,35 +79,6 @@ const OWN_CLAIM_EXISTS = { kind: "claimed-by-you" } as const;
 function formString(formData: FormData, name: string): string {
   const value = formData.get(name);
   return typeof value === "string" ? value : "";
-}
-
-/**
- * Runs a chore mutation in one transaction, after locking the Household (the
- * lock member removal takes) and re-reading the caller's membership: they may
- * have been removed since the page loaded. A unique violation is answered
- * with `onUniqueViolation`, which each action chooses.
- */
-async function inHouseholdTransaction<T extends { kind: string }, U extends { kind: string }>(
-  householdId: string,
-  userId: string,
-  work: (tx: Prisma.TransactionClient) => Promise<T>,
-  onUniqueViolation: U,
-): Promise<T | { kind: "caller-gone" } | U> {
-  try {
-    return await db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Household" WHERE id = ${householdId} FOR UPDATE`;
-      const caller = await tx.membership.findUnique({
-        where: { userId_householdId: { userId, householdId } },
-      });
-      if (!caller) return { kind: "caller-gone" } as const;
-
-      return work(tx);
-    });
-  } catch (error) {
-    // The locks should make this unreachable; the unique is the backstop.
-    if (!isUniqueViolation(error)) throw error;
-    return onUniqueViolation;
-  }
 }
 
 /** Redirects a removed caller; otherwise refreshes both lists. */
