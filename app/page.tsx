@@ -68,6 +68,12 @@ export default async function Home() {
                     title={chore.title}
                     recurring={chore.recurrence !== "none"}
                   />
+                  {/* Any member may edit any pending chore. */}
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/chores/${chore.id}/edit`}>
+                      Edit<span className="sr-only"> &quot;{chore.title}&quot;</span>
+                    </Link>
+                  </Button>
                 </>
               ) : null
             }

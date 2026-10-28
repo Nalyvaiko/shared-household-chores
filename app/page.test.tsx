@@ -220,14 +220,34 @@ describe("/ page", () => {
       [...row.lastElementChild!.children].map((control) =>
         control.tagName === "DETAILS"
           ? control.querySelector("summary")!.textContent
-          : control.querySelector("button")!.textContent,
+          : control.tagName === "A"
+            ? control.textContent
+            : control.querySelector("button")!.textContent,
       ),
     );
     expect(controls).toEqual([
-      ['Complete "Fixed bins"', 'Skip "Fixed bins"'],
-      ['Complete "Claimed hoovering"', 'Release "Claimed hoovering"', 'Skip "Claimed hoovering"'],
-      ['Complete "Shared claim"', 'Release "Shared claim"', 'Skip "Shared claim"'],
-      ['Complete "Claim with former"', 'Release "Claim with former"', 'Skip "Claim with former"'],
+      ['Complete "Fixed bins"', 'Skip "Fixed bins"', 'Edit "Fixed bins"'],
+      [
+        'Complete "Claimed hoovering"',
+        'Release "Claimed hoovering"',
+        'Skip "Claimed hoovering"',
+        'Edit "Claimed hoovering"',
+      ],
+      ['Complete "Shared claim"', 'Release "Shared claim"', 'Skip "Shared claim"', 'Edit "Shared claim"'],
+      [
+        'Complete "Claim with former"',
+        'Release "Claim with former"',
+        'Skip "Claim with former"',
+        'Edit "Claim with former"',
+      ],
+    ]);
+
+    // Edit is a plain link to the edit page, so it works without JavaScript.
+    expect([...doc.querySelectorAll("li a")].map((a) => a.getAttribute("href"))).toEqual([
+      "/chores/chore_1/edit",
+      "/chores/chore_2/edit",
+      "/chores/chore_3/edit",
+      "/chores/chore_4/edit",
     ]);
 
     const release = [...doc.querySelectorAll("li button")].find(

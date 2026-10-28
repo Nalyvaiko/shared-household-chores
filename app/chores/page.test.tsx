@@ -266,8 +266,11 @@ describe("/chores page", () => {
     expect(rows[1]).toContain("Unclaimed");
     expect(rows[1]).not.toContain("Repeats");
     expect(rows[1]).not.toContain("Overdue");
-    // The title is plain text, not a link.
-    expect(rows.join("")).not.toContain("<a");
+    // The title is plain text, not a link; the only links are the Edit ones.
+    expect(rows.join("").match(/<a [^>]*>/g)!.map((a) => a.match(/href="([^"]*)"/)![1])).toEqual([
+      "/chores/chore_1/edit",
+      "/chores/chore_2/edit",
+    ]);
   });
 
   it("says No chores yet. when the household has no chores", async () => {
@@ -386,11 +389,13 @@ describe("/chores Skip disclosure", () => {
     const doc = parse(await html(params));
     return [...doc.querySelectorAll("li")].map((row) => {
       // The actions slot is the row's last part, when there is one.
-      const slot = row.lastElementChild!.querySelector("form, details") ? row.lastElementChild! : null;
+      const slot = row.lastElementChild!.querySelector("form, details, a") ? row.lastElementChild! : null;
       const labels = [...(slot?.children ?? [])].map((control) =>
         control.tagName === "DETAILS"
           ? control.querySelector("summary")!.textContent
-          : control.querySelector("button")!.textContent,
+          : control.tagName === "A"
+            ? control.textContent
+            : control.querySelector("button")!.textContent,
       );
       return [row.querySelector("span")!.textContent, labels];
     });
@@ -411,12 +416,12 @@ describe("/chores Skip disclosure", () => {
 
   it("is on every pending row for a member, after Complete or alone, and on no other row", async () => {
     expect(await controls({ status: "all" })).toEqual([
-      ["Mine", ['Complete "Mine"', 'Skip "Mine"']],
-      ["Bob's", ['Skip "Bob\'s"']],
-      ["Nobody's", ['Skip "Nobody\'s"']],
-      ["Unclaimed", ['Claim "Unclaimed"', 'Skip "Unclaimed"']],
-      ["Claimed by Bob", ['Skip "Claimed by Bob"']],
-      ["Carol's", ['Skip "Carol\'s"']],
+      ["Mine", ['Complete "Mine"', 'Skip "Mine"', 'Edit "Mine"']],
+      ["Bob's", ['Skip "Bob\'s"', 'Edit "Bob\'s"']],
+      ["Nobody's", ['Skip "Nobody\'s"', 'Edit "Nobody\'s"']],
+      ["Unclaimed", ['Claim "Unclaimed"', 'Skip "Unclaimed"', 'Edit "Unclaimed"']],
+      ["Claimed by Bob", ['Skip "Claimed by Bob"', 'Edit "Claimed by Bob"']],
+      ["Carol's", ['Skip "Carol\'s"', 'Edit "Carol\'s"']],
       ["Done", []],
       ["Skipped", []],
     ]);
@@ -426,7 +431,8 @@ describe("/chores Skip disclosure", () => {
     membershipFindFirst.mockResolvedValue({ ...membership, role: "admin" });
 
     const rows = await controls({ status: "all" });
-    expect(rows.filter(([, labels]) => labels.length > 0)).toHaveLength(6);
+    const withSkip = rows.filter(([, labels]) => (labels as string[]).some((l) => l.startsWith("Skip")));
+    expect(withSkip).toHaveLength(6);
   });
 
   it("has no controls at all on completed and skipped rows", async () => {
@@ -489,11 +495,13 @@ describe("/chores Claim and Release buttons", () => {
   async function rows(params: Record<string, string> = { status: "all" }) {
     const doc = parse(await html(params));
     return [...doc.querySelectorAll("li")].map((row) => {
-      const slot = row.lastElementChild!.querySelector("form, details") ? row.lastElementChild! : null;
+      const slot = row.lastElementChild!.querySelector("form, details, a") ? row.lastElementChild! : null;
       const labels = [...(slot?.children ?? [])].map((control) =>
         control.tagName === "DETAILS"
           ? control.querySelector("summary")!.textContent
-          : control.querySelector("button")!.textContent,
+          : control.tagName === "A"
+            ? control.textContent
+            : control.querySelector("button")!.textContent,
       );
       return [row.querySelector("span")!.textContent, labels];
     });
@@ -522,16 +530,17 @@ describe("/chores Claim and Release buttons", () => {
       membershipFindFirst.mockResolvedValue({ ...membership, role });
 
       expect(await rows()).toEqual([
-        ["Unclaimed", ['Claim "Unclaimed"', 'Skip "Unclaimed"']],
-        ["Former Bob's", ['Claim "Former Bob\'s"', 'Skip "Former Bob\'s"']],
-        ["Mine", ['Complete "Mine"', 'Release "Mine"', 'Skip "Mine"']],
-        ["Bob's", ['Skip "Bob\'s"']],
-        ["Bob's and former", ['Skip "Bob\'s and former"']],
-        ["Bob's and mine", ['Complete "Bob\'s and mine"', 'Release "Bob\'s and mine"', 'Skip "Bob\'s and mine"']],
-        ["Fixed mine", ['Complete "Fixed mine"', 'Skip "Fixed mine"']],
-        ["Fixed nobody's", ['Skip "Fixed nobody\'s"']],
-        ["Claimed done", []],
-        ["Unclaimed skipped", []],
+        ["Unclaimed", ['Claim "Unclaimed"', 'Skip "Unclaimed"', 'Edit "Unclaimed"']],
+        ["Former Bob's", ['Claim "Former Bob\'s"', 'Skip "Former Bob\'s"', 'Edit "Former Bob\'s"']],
+        ["Mine", ['Complete "Mine"', 'Release "Mine"', 'Skip "Mine"', 'Edit "Mine"']],
+        ["Bob's", ['Skip "Bob\'s"', 'Edit "Bob\'s"']],
+        ["Bob's and former", ['Skip "Bob\'s and former"', 'Edit "Bob\'s and former"']],
+        ["Bob's and mine", ['Complete "Bob\'s and mine"', 'Release "Bob\'s and mine"', 'Skip "Bob\'s and mine"', 'Edit "Bob\'s and mine"']],
+        ["Fixed mine", ['Complete "Fixed mine"', 'Skip "Fixed mine"', 'Edit "Fixed mine"']],
+        ["Fixed nobody's", ['Skip "Fixed nobody\'s"', 'Edit "Fixed nobody\'s"']],
+        // Only an admin gets Delete on a finished row.
+        ["Claimed done", role === "admin" ? ['Delete "Claimed done"'] : []],
+        ["Unclaimed skipped", role === "admin" ? ['Delete "Unclaimed skipped"'] : []],
       ]);
     },
   );
@@ -1012,5 +1021,74 @@ describe("/chores outcome message across server re-renders", () => {
       expect(detailsOf("chore_9").open).toBe(false);
       expect(reasonOf("chore_9").value).toBe("");
     });
+  });
+});
+
+describe("/chores Edit and Delete links", () => {
+  const mixed = [
+    chore({ id: "c1", title: "Pending one" }),
+    chore({ id: "c2", title: "Done one", status: "completed" }),
+    chore({ id: "c3", title: "Skipped one", status: "skipped" }),
+  ];
+
+  function links(doc: Document) {
+    return [...doc.querySelectorAll("li a")].map((a) => [a.textContent, a.getAttribute("href")]);
+  }
+
+  beforeEach(() => {
+    choreFindMany.mockResolvedValue(mixed);
+  });
+
+  it("gives a member Edit on pending rows only, as a plain link", async () => {
+    const doc = parse(await html({ status: "all" }));
+
+    expect(links(doc)).toEqual([['Edit "Pending one"', "/chores/c1/edit"]]);
+    expect(doc.querySelector("li a .sr-only")!.textContent).toBe(' "Pending one"');
+  });
+
+  it("gives an admin Edit on pending rows and Delete on completed and skipped rows", async () => {
+    membershipFindFirst.mockResolvedValue({ ...membership, role: "admin" });
+    const doc = parse(await html({ status: "all" }));
+
+    expect(links(doc)).toEqual([
+      ['Edit "Pending one"', "/chores/c1/edit"],
+      ['Delete "Done one"', "/chores/c2/edit"],
+      ['Delete "Skipped one"', "/chores/c3/edit"],
+    ]);
+    // Delete is only a link to the edit page, never a form on the row.
+    expect(doc.querySelectorAll("li")[1].querySelector("form, details, button")).toBeNull();
+  });
+});
+
+describe("/chores notice", () => {
+  it.each([
+    ["saved", "Changes saved."],
+    ["deleted", "Chore deleted."],
+  ])("shows the %s notice in a status paragraph above the list", async (notice, text) => {
+    const doc = parse(await html({ notice }));
+
+    const paragraph = doc.querySelector('p[role="status"]')!;
+    expect(paragraph.textContent).toBe(text);
+    // Before the list, and separate from the row actions' message region.
+    const list = doc.querySelector("ul")!;
+    expect(paragraph.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(doc.querySelector('div[role="status"]')!.textContent).toBe("");
+  });
+
+  it.each<Record<string, string | string[]>>([{}, { notice: "other" }, { notice: ["saved", "saved"] }])(
+    "shows nothing for a missing or unknown notice (%o)",
+    async (params) => {
+      const doc = parse(await html(params));
+      expect(doc.querySelector('p[role="status"]')).toBeNull();
+    },
+  );
+
+  it("isn't carried by the filter form or Clear filters", async () => {
+    const doc = parse(await html({ notice: "saved" }));
+    const form = doc.querySelector('form[method="get"]')!;
+
+    expect(form.querySelector('[name="notice"]')).toBeNull();
+    const clear = [...form.querySelectorAll("a")].find((a) => a.textContent === "Clear filters")!;
+    expect(clear.getAttribute("href")).toBe("/chores");
   });
 });

@@ -1,6 +1,6 @@
 import * as z from "zod";
 
-import { DUE_AT_OUT_OF_RANGE_MARKER } from "@/lib/chore/due-date";
+import { DUE_AT_OUT_OF_RANGE_MARKER, DUE_AT_UNCHANGED_MARKER } from "@/lib/chore/due-date";
 import { codePointLength } from "@/lib/household/validation";
 
 // Counted in Unicode code points, not UTF-16 units, so an emoji is one
@@ -127,4 +127,47 @@ export function parseDueAt(dueAt: string, dueAtLocal: string): DueAtResult {
     return { success: false, error: DUE_AT_RANGE_ERROR };
   }
   return { success: true, dueAt: instant };
+}
+
+/**
+ * The due date the edit form sent, before it is compared with the stored
+ * one: `keep` for the unchanged marker with an empty visible field, and
+ * `out-of-range` for a well-formed instant outside 2000–2099, which is only
+ * accepted when it equals the stored due date (a roll-over can push one past
+ * 2099, and saving other fields must still work).
+ */
+export type EditedDueAt =
+  | { kind: "keep" }
+  | { kind: "set"; dueAt: Date | null }
+  | { kind: "out-of-range"; dueAt: Date }
+  | { kind: "error"; error: string };
+
+export function parseEditedDueAt(dueAt: string, dueAtLocal: string): EditedDueAt {
+  if (dueAt === DUE_AT_UNCHANGED_MARKER) {
+    // A date typed before the browser filled the field (no JavaScript).
+    return dueAtLocal === "" ? { kind: "keep" } : { kind: "error", error: DUE_AT_TIME_ZONE_ERROR };
+  }
+  const result = parseDueAt(dueAt, dueAtLocal);
+  if (result.success) return { kind: "set", dueAt: result.dueAt };
+  // A range refusal is either the browser's marker or a well-formed instant.
+  if (result.error === DUE_AT_RANGE_ERROR && dueAt !== DUE_AT_OUT_OF_RANGE_MARKER) {
+    return { kind: "out-of-range", dueAt: new Date(dueAt) };
+  }
+  return { kind: "error", error: result.error };
+}
+
+/** The due date to save, given the one stored on the chore. */
+export function resolveEditedDueAt(edited: EditedDueAt, stored: Date | null): DueAtResult {
+  switch (edited.kind) {
+    case "keep":
+      return { success: true, dueAt: stored };
+    case "set":
+      return { success: true, dueAt: edited.dueAt };
+    case "out-of-range":
+      return stored !== null && stored.getTime() === edited.dueAt.getTime()
+        ? { success: true, dueAt: stored }
+        : { success: false, error: DUE_AT_RANGE_ERROR };
+    case "error":
+      return { success: false, error: edited.error };
+  }
 }

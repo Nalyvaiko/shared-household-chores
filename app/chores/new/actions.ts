@@ -9,6 +9,7 @@ import {
   CHORE_CATEGORY_GONE_ERROR,
 } from "@/app/chores/new/messages";
 import { requireHousehold, type CurrentHousehold } from "@/lib/auth/guards";
+import { categoryBelongs, nonMemberIds } from "@/lib/chore/references";
 import {
   assignmentModeSchema,
   choreTitleSchema,
@@ -18,51 +19,21 @@ import {
   recurrenceSchema,
 } from "@/lib/chore/validation";
 import { db } from "@/lib/db";
+import {
+  assigneeIdsField,
+  field,
+  type ChoreFormErrors,
+  type ChoreFormState,
+  type ChoreFormValues,
+} from "@/lib/chore/form";
 
-/** What the user entered, echoed back so the form keeps it after a refusal. */
-export type ChoreFormValues = {
-  title: string;
-  dueAtLocal: string;
-  priority: string;
-  effort: string;
-  categoryId: string;
-  recurrence: string;
-  assignmentMode: string;
-  /** User ids of the ticked members. Always empty in Claim mode. */
-  assigneeIds: string[];
-};
+export type { ChoreFormValues } from "@/lib/chore/form";
+export type CreateChoreState = ChoreFormState;
 
-export type CreateChoreState = {
-  values: ChoreFormValues;
-  errors?: {
-    title?: string[];
-    dueAt?: string[];
-    priority?: string[];
-    effort?: string[];
-    categoryId?: string[];
-    recurrence?: string[];
-    assignmentMode?: string[];
-    assigneeIds?: string[];
-  };
-};
-
-type ChoreErrors = NonNullable<CreateChoreState["errors"]>;
+type ChoreErrors = ChoreFormErrors;
 
 const NEW_CHORE_PATH = "/chores/new";
 const CHORES_PATH = "/chores";
-
-function field(formData: FormData, name: string): string {
-  const value = formData.get(name);
-  return typeof value === "string" ? value : "";
-}
-
-/** Every submitted assignee id, once each. A non-string value counts as empty. */
-function assigneeIdsField(formData: FormData): string[] {
-  const ids = formData
-    .getAll("assigneeIds")
-    .map((value) => (typeof value === "string" ? value : ""));
-  return [...new Set(ids)];
-}
 
 /**
  * Locks the household row (the same lock the categories and members actions
@@ -75,35 +46,6 @@ async function lockAndReadCaller(tx: Prisma.TransactionClient, current: CurrentH
   return tx.membership.findUnique({
     where: { userId_householdId: { userId: current.membership.userId, householdId } },
   });
-}
-
-/** Whether the id names one of this household's categories. */
-async function categoryBelongs(
-  client: Pick<Prisma.TransactionClient, "category">,
-  categoryId: string,
-  householdId: string,
-): Promise<boolean> {
-  const category = await client.category.findUnique({ where: { id: categoryId } });
-  // Another household's id gets the same answer as an unknown one.
-  return category !== null && category.householdId === householdId;
-}
-
-/**
- * The ids that are not a current member of the household: unknown, empty,
- * another household's user, or removed. Older assignee rows don't count.
- */
-async function nonMemberIds(
-  client: Pick<Prisma.TransactionClient, "membership">,
-  userIds: string[],
-  householdId: string,
-): Promise<string[]> {
-  if (userIds.length === 0) return [];
-  const rows = await client.membership.findMany({
-    where: { householdId, userId: { in: userIds } },
-    select: { userId: true },
-  });
-  const members = new Set(rows.map((row) => row.userId));
-  return userIds.filter((id) => !members.has(id));
 }
 
 export async function createChore(
