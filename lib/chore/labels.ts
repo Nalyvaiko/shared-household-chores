@@ -1,4 +1,5 @@
 import type {
+  AssignmentMode,
   ChoreStatus,
   Effort,
   Priority,
@@ -30,6 +31,11 @@ export const RECURRENCE_OPTIONS: readonly Option<RecurrenceFrequency>[] = [
   { value: "monthly", label: "Monthly" },
 ];
 
+export const ASSIGNMENT_MODE_OPTIONS: readonly Option<AssignmentMode>[] = [
+  { value: "fixed", label: "Fixed — specific people" },
+  { value: "claim", label: "Claim — anyone can claim it" },
+];
+
 export const STATUS_OPTIONS: readonly Option<ChoreStatus>[] = [
   { value: "pending", label: "Pending" },
   { value: "completed", label: "Completed" },
@@ -46,6 +52,10 @@ export function priorityLabel(value: Priority): string {
 
 export function effortLabel(value: Effort): string {
   return labelOf(EFFORT_OPTIONS, value);
+}
+
+export function assignmentModeLabel(value: AssignmentMode): string {
+  return labelOf(ASSIGNMENT_MODE_OPTIONS, value);
 }
 
 export function statusLabel(value: ChoreStatus): string {

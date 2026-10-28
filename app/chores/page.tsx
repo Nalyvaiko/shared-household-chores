@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { choreNoticeText } from "@/app/chores/[id]/edit/messages";
 import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
 import { ClaimChoreButton } from "@/components/claim-chore-button";
@@ -101,7 +102,8 @@ function ChoreFilterForm({
 export default async function ChoresPage({ searchParams }: PageProps<"/chores">) {
   // requireUser() first: requireHousehold() alone would drop the callbackUrl.
   const user = await requireUser({ callbackUrl: "/chores" });
-  const { household } = await requireHousehold();
+  const { household, membership } = await requireHousehold();
+  const isAdmin = membership.role === "admin";
   // One "now" per request, for both the overdue filter and the badges.
   const now = new Date();
 
@@ -111,10 +113,13 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
       select: { id: true, name: true, builtIn: true },
     }),
   );
+  const params = await searchParams;
   const filters = parseChoreFilters(
-    await searchParams,
+    params,
     categories.map((category) => category.id),
   );
+  // After a save or delete on the edit page; any other value shows nothing.
+  const notice = choreNoticeText(params.notice);
 
   const chores = await db.chore.findMany({
     where: choreListWhere(household.id, filters, now),
@@ -141,6 +146,13 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
         filters={filters}
         categories={categories.map(({ id, name }) => ({ id, name }))}
       />
+      {/* Separate from the row actions' messages below. The filter form and
+          "Clear filters" don't carry `notice`, so it goes with them. */}
+      {notice ? (
+        <p role="status" className="w-full rounded-md border px-4 py-3 text-sm">
+          {notice}
+        </p>
+      ) : null}
       {/* Unkeyed (unlike the form above) and outside the branches below, so
           the outcome message survives the re-render, the completed row
           leaving, and the list becoming empty. */}
@@ -173,7 +185,20 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
                     title={chore.title}
                     recurring={chore.recurrence !== "none"}
                   />
+                  {/* Any member may edit any pending chore. */}
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/chores/${chore.id}/edit`}>
+                      Edit<span className="sr-only"> &quot;{chore.title}&quot;</span>
+                    </Link>
+                  </Button>
                 </>
+              ) : isAdmin ? (
+                // Only admins may delete; the delete is confirmed on the edit page.
+                <Button asChild size="sm" variant="outline">
+                  <Link href={`/chores/${chore.id}/edit`}>
+                    Delete<span className="sr-only"> &quot;{chore.title}&quot;</span>
+                  </Link>
+                </Button>
               ) : null
             }
           />

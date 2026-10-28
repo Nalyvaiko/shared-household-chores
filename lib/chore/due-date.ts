@@ -45,3 +45,26 @@ export function localToUtcIso(local: string, badInput = false): string {
   if (Number.isNaN(instant.getTime())) return DUE_AT_INVALID_MARKER;
   return instant.toISOString();
 }
+
+/**
+ * Sent in `dueAt` by the edit form until the browser has filled the field:
+ * the server render can't know the viewer's zone. With an empty visible
+ * field it keeps the stored due date.
+ */
+export const DUE_AT_UNCHANGED_MARKER = "unchanged";
+
+function pad(value: number, length = 2): string {
+  return String(value).padStart(length, "0");
+}
+
+/**
+ * The `datetime-local` value (`YYYY-MM-DDTHH:mm`) of a UTC ISO instant in the
+ * browser's zone: the inverse of `localToUtcIso`, to the minute.
+ */
+export function utcIsoToLocal(iso: string): string {
+  const date = new Date(iso);
+  return (
+    `${pad(date.getFullYear(), 4)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
