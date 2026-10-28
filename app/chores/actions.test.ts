@@ -1,9 +1,15 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { Prisma } from "@prisma/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  CHORE_CLAIMED_BY_OTHER_ERROR,
+  CHORE_CLAIMED_BY_YOU_ERROR,
   CHORE_GONE_ERROR,
   CHORE_NOT_ASSIGNEE_ERROR,
+  CHORE_NOT_CLAIM_ERROR,
+  CHORE_NOT_CLAIMANT_ERROR,
   CHORE_NOT_PENDING_ERROR,
   CHORE_UNCLAIMED_ERROR,
 } from "@/app/chores/messages";
@@ -27,6 +33,7 @@ const tx = {
   chore: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
   completionRecord: { create: vi.fn() },
   skipRecord: { create: vi.fn() },
+  choreAssignee: { create: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
 };
 const $transaction = vi.fn(async (callback: (client: typeof tx) => unknown) => callback(tx));
 vi.mock("@/lib/db", () => ({
@@ -42,7 +49,7 @@ vi.mock("next/navigation", () => ({ redirect }));
 const revalidatePath = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-const { completeChore, skipChore } = await import("./actions");
+const { claimChore, completeChore, releaseChore, skipChore } = await import("./actions");
 
 const NOW = new Date("2026-10-23T12:00:00.000Z");
 
@@ -118,7 +125,8 @@ beforeEach(() => {
   auth.mockReset().mockResolvedValue(session);
   findUnique.mockReset().mockResolvedValue(user);
   findFirst.mockReset().mockResolvedValue({ ...membership, household });
-  $transaction.mockClear();
+  // Reset to the shared `tx`: the race tests swap in an in-memory store.
+  $transaction.mockReset().mockImplementation(async (callback) => callback(tx));
   tx.$queryRaw.mockReset().mockImplementation((strings: string[]) =>
     Promise.resolve(strings.join("").includes('"Chore"') ? [{ id: "chore_1" }] : [{ id: "household_1" }]),
   );
@@ -130,6 +138,9 @@ beforeEach(() => {
   tx.completionRecord.create.mockReset().mockResolvedValue({ id: "record_1" });
   tx.skipRecord.create.mockReset().mockResolvedValue({ id: "skip_1" });
   tx.chore.create.mockReset().mockResolvedValue({ id: "chore_2" });
+  tx.choreAssignee.create.mockReset().mockResolvedValue({ id: "assignee_1" });
+  tx.choreAssignee.delete.mockReset().mockResolvedValue({ id: "assignee_1" });
+  tx.choreAssignee.deleteMany.mockReset().mockResolvedValue({ count: 0 });
   redirect.mockClear();
   revalidatePath.mockClear();
 });
@@ -750,5 +761,433 @@ describe("racing Skip and Complete on one chore", () => {
       // The completion rolled over; the skip did nothing.
       expect(chores.size).toBe(2);
     }
+  });
+});
+
+/** An assignee as `lib/chore/claim.ts` reads it: with their memberships in this household. */
+const holder = (userId: string, isMember = true) => ({
+  userId,
+  user: { memberships: isMember ? [{ id: `membership_${userId}` }] : [] },
+});
+
+function expectNoAssigneeWrites() {
+  expect(tx.choreAssignee.create).not.toHaveBeenCalled();
+  expect(tx.choreAssignee.delete).not.toHaveBeenCalled();
+  expect(tx.choreAssignee.deleteMany).not.toHaveBeenCalled();
+  expectNothingWritten();
+}
+
+describe.each([
+  ["claimChore", () => claimChore, chore({ assignmentMode: "claim", assignees: [] })],
+  ["releaseChore", () => releaseChore, chore({ assignmentMode: "claim", assignees: [holder("user_1")] })],
+] as const)("%s, shared behaviour", (_name, action, claimable) => {
+  beforeEach(() => {
+    tx.chore.findUnique.mockResolvedValue(claimable);
+  });
+
+  it("takes the Household lock, re-reads the caller, then locks and re-reads the chore before writing", async () => {
+    await action()(idle, form());
+
+    expect(lockQueries()).toEqual([
+      'SELECT id FROM "Household" WHERE id = ? FOR UPDATE',
+      'SELECT id FROM "Chore" WHERE id = ? AND "householdId" = ? FOR UPDATE',
+    ]);
+    expect(tx.$queryRaw.mock.calls[0].slice(1)).toEqual(["household_1"]);
+    expect(tx.$queryRaw.mock.calls[1].slice(1)).toEqual(["chore_1", "household_1"]);
+    expect(tx.membership.findUnique).toHaveBeenCalledWith({
+      where: { userId_householdId: { userId: "user_1", householdId: "household_1" } },
+    });
+    // The assignees are re-read with their memberships in this household.
+    expect(tx.chore.findUnique.mock.calls[0][0].include.assignees.select.user.select.memberships).toEqual({
+      where: { householdId: "household_1" },
+      select: { id: true },
+    });
+    const write = [...tx.choreAssignee.create.mock.invocationCallOrder, ...tx.choreAssignee.delete.mock.invocationCallOrder];
+    expect(write).toHaveLength(1);
+    const order = [
+      tx.$queryRaw.mock.invocationCallOrder[0],
+      tx.membership.findUnique.mock.invocationCallOrder[0],
+      tx.$queryRaw.mock.invocationCallOrder[1],
+      tx.chore.findUnique.mock.invocationCallOrder[0],
+      write[0],
+    ];
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(revalidatePath.mock.invocationCallOrder[0]).toBeGreaterThan(write[0]);
+    expectListsRevalidated();
+  });
+
+  it("redirects a caller removed mid-request to /household/new with nothing written", async () => {
+    tx.membership.findUnique.mockResolvedValue(null);
+
+    await expect(action()(idle, form())).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(redirect).toHaveBeenCalledWith("/household/new");
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/chores");
+    expect(lockQueries()).toHaveLength(1);
+    expect(tx.chore.findUnique).not.toHaveBeenCalled();
+    expectNoAssigneeWrites();
+  });
+
+  it.each([
+    ["an empty id", { choreId: "" }, true],
+    ["a missing id", {}, true],
+    ["an unknown id", { choreId: "chore_unknown" }, false],
+    ["another household's id", { choreId: "chore_other" }, false],
+  ])("answers %s with the same no-longer-exists message", async (_label, fields, skipsLock) => {
+    tx.$queryRaw.mockImplementation((strings: string[]) =>
+      Promise.resolve(strings.join("").includes('"Chore"') ? [] : [{ id: "household_1" }]),
+    );
+
+    expect(await action()(idle, form(fields))).toEqual({ status: "error", message: CHORE_GONE_ERROR });
+    expect(lockQueries()).toHaveLength(skipsLock ? 1 : 2);
+    expect(tx.chore.findUnique).not.toHaveBeenCalled();
+    expectNoAssigneeWrites();
+    expectListsRevalidated();
+  });
+
+  it.each(["completed", "skipped"])("refuses a %s chore", async (status) => {
+    tx.chore.findUnique.mockResolvedValue({ ...claimable, status });
+
+    expect(await action()(idle, form())).toEqual({ status: "error", message: CHORE_NOT_PENDING_ERROR });
+    expectNoAssigneeWrites();
+    expectListsRevalidated();
+  });
+
+  it("refuses a fixed chore", async () => {
+    tx.chore.findUnique.mockResolvedValue({ ...claimable, assignmentMode: "fixed" });
+
+    expect(await action()(idle, form())).toEqual({ status: "error", message: CHORE_NOT_CLAIM_ERROR });
+    expectNoAssigneeWrites();
+    expectListsRevalidated();
+  });
+
+  it("reads only choreId from the form", async () => {
+    const posted = form({
+      choreId: "chore_1",
+      userId: "user_2",
+      householdId: "household_9",
+      assignmentMode: "claim",
+    });
+    const get = vi.spyOn(posted, "get");
+
+    await action()(idle, posted);
+
+    expect(get.mock.calls.map(([name]) => name)).toEqual(["choreId"]);
+    expect(tx.$queryRaw.mock.calls[1].slice(1)).toEqual(["chore_1", "household_1"]);
+    expect(tx.membership.findUnique.mock.calls[0][0].where.userId_householdId.userId).toBe("user_1");
+  });
+
+  it("rethrows an error that is not a unique violation", async () => {
+    tx.choreAssignee.create.mockRejectedValue(new Error("connection lost"));
+    tx.choreAssignee.delete.mockRejectedValue(new Error("connection lost"));
+
+    await expect(action()(idle, form())).rejects.toThrow("connection lost");
+  });
+
+  it("redirects a signed-out caller to /signin", async () => {
+    auth.mockResolvedValue(null);
+
+    await expect(action()(idle, form())).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirect).toHaveBeenCalledWith("/signin");
+    expect($transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("claimChore", () => {
+  it("claims an unclaimed chore for the caller and gives the success message", async () => {
+    tx.chore.findUnique.mockResolvedValue(chore({ assignmentMode: "claim", assignees: [] }));
+
+    expect(await claimChore(idle, form())).toEqual({ status: "success", message: 'Claimed "Take out bins".' });
+    expect(tx.choreAssignee.create).toHaveBeenCalledWith({ data: { choreId: "chore_1", userId: "user_1" } });
+    expect(tx.choreAssignee.deleteMany).not.toHaveBeenCalled();
+    expectNothingWritten();
+    expectListsRevalidated();
+  });
+
+  it("lets an admin claim too", async () => {
+    findFirst.mockResolvedValue({ ...membership, role: "admin", household });
+    tx.membership.findUnique.mockResolvedValue({ ...membership, role: "admin" });
+    tx.chore.findUnique.mockResolvedValue(chore({ assignmentMode: "claim", assignees: [] }));
+
+    expect((await claimChore(idle, form())).status).toBe("success");
+  });
+
+  it("replaces a former member's claim with the caller's", async () => {
+    tx.chore.findUnique.mockResolvedValue(
+      chore({ assignmentMode: "claim", assignees: [holder("user_removed", false)] }),
+    );
+
+    expect(await claimChore(idle, form())).toEqual({ status: "success", message: 'Claimed "Take out bins".' });
+    expect(tx.choreAssignee.deleteMany).toHaveBeenCalledWith({
+      where: { choreId: "chore_1", userId: { in: ["user_removed"] } },
+    });
+    expect(tx.choreAssignee.create).toHaveBeenCalledWith({ data: { choreId: "chore_1", userId: "user_1" } });
+    expect($transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["the caller already holds it", [holder("user_1")], CHORE_CLAIMED_BY_YOU_ERROR],
+    ["another member holds it", [holder("user_2")], CHORE_CLAIMED_BY_OTHER_ERROR],
+    ["another member holds it next to a former member", [holder("user_9", false), holder("user_2")], CHORE_CLAIMED_BY_OTHER_ERROR],
+  ])("refuses when %s", async (_label, assignees, message) => {
+    tx.chore.findUnique.mockResolvedValue(chore({ assignmentMode: "claim", assignees }));
+
+    expect(await claimChore(idle, form())).toEqual({ status: "error", message });
+    expectNoAssigneeWrites();
+    expectListsRevalidated();
+  });
+
+  it("maps a P2002 from the insert to the already-claimed-by-you message", async () => {
+    tx.chore.findUnique.mockResolvedValue(chore({ assignmentMode: "claim", assignees: [] }));
+    tx.choreAssignee.create.mockRejectedValue(p2002());
+
+    expect(await claimChore(idle, form())).toEqual({ status: "error", message: CHORE_CLAIMED_BY_YOU_ERROR });
+    expectListsRevalidated();
+  });
+});
+
+describe("releaseChore", () => {
+  it("deletes only the caller's row and gives the success message", async () => {
+    tx.chore.findUnique.mockResolvedValue(
+      chore({ assignmentMode: "claim", assignees: [holder("user_2"), holder("user_1")] }),
+    );
+
+    expect(await releaseChore(idle, form())).toEqual({ status: "success", message: 'Released "Take out bins".' });
+    expect(tx.choreAssignee.delete).toHaveBeenCalledTimes(1);
+    expect(tx.choreAssignee.delete).toHaveBeenCalledWith({
+      where: { choreId_userId: { choreId: "chore_1", userId: "user_1" } },
+    });
+    expect(tx.choreAssignee.deleteMany).not.toHaveBeenCalled();
+    expect(tx.choreAssignee.create).not.toHaveBeenCalled();
+    expectNothingWritten();
+    expectListsRevalidated();
+  });
+
+  it.each([
+    ["unclaimed", []],
+    ["claimed by someone else", [holder("user_2")]],
+    ["claimed only by a former member", [holder("user_9", false)]],
+  ])("refuses a chore that is %s", async (_label, assignees) => {
+    findFirst.mockResolvedValue({ ...membership, role: "admin", household });
+    tx.membership.findUnique.mockResolvedValue({ ...membership, role: "admin" });
+    tx.chore.findUnique.mockResolvedValue(chore({ assignmentMode: "claim", assignees }));
+
+    expect(await releaseChore(idle, form())).toEqual({ status: "error", message: CHORE_NOT_CLAIMANT_ERROR });
+    expectNoAssigneeWrites();
+    expectListsRevalidated();
+  });
+});
+
+describe("racing claims, releases and completions on one chore", () => {
+  // A small in-memory database behind the real actions, as for Skip above,
+  // with assignee rows enforcing their (choreId, userId) unique. Each request
+  // runs as its own user, through the session in `requestUser`.
+  type Row = ReturnType<typeof chore>;
+  const requestUser = new AsyncLocalStorage<string>();
+  let chores: Map<string, Row>;
+  let assignees: { choreId: string; userId: string }[];
+  let members: Set<string>;
+  let completionRecords: { choreId: string; userId: string }[];
+
+  function useStore(initial: Row, initialAssignees: string[], memberIds: string[]) {
+    chores = new Map([[initial.id, initial]]);
+    assignees = initialAssignees.map((userId) => ({ choreId: initial.id, userId }));
+    members = new Set(memberIds);
+    completionRecords = [];
+    let held: Promise<void> = Promise.resolve();
+
+    auth.mockImplementation(async () => {
+      const id = requestUser.getStore()!;
+      return { user: { id, email: `${id}@example.com` }, expires: "2099-01-01" };
+    });
+    findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => ({
+      id: where.id,
+      email: `${where.id}@example.com`,
+      name: where.id,
+    }));
+    findFirst.mockImplementation(async ({ where }: { where: { userId: string } }) =>
+      members.has(where.userId) ? { ...membership, userId: where.userId, household } : null,
+    );
+
+    $transaction.mockImplementation(async (callback) => {
+      let release = () => {};
+      const client = {
+        $queryRaw: async (strings: string[], ...params: string[]) => {
+          if (strings.join("").includes('"Household"')) {
+            const previous = held;
+            held = new Promise((resolve) => (release = resolve));
+            await previous;
+            return [{ id: "household_1" }];
+          }
+          const row = chores.get(params[0]);
+          return row && row.householdId === params[1] ? [{ id: row.id }] : [];
+        },
+        membership: {
+          findUnique: async ({ where }: { where: { userId_householdId: { userId: string } } }) =>
+            members.has(where.userId_householdId.userId) ? membership : null,
+        },
+        chore: {
+          findUnique: async ({ where }: { where: { id: string } }) => {
+            const row = chores.get(where.id);
+            if (!row) return null;
+            const rows = assignees.filter((a) => a.choreId === row.id);
+            // Read like the real queries: with memberships for claim, bare for complete.
+            return {
+              ...row,
+              assignees: rows.map((a) => ({
+                userId: a.userId,
+                user: { memberships: members.has(a.userId) ? [{ id: `m_${a.userId}` }] : [] },
+              })),
+            };
+          },
+          update: async ({ where, data }: { where: { id: string }; data: Partial<Row> }) => {
+            const row = { ...chores.get(where.id)!, ...data };
+            chores.set(row.id, row);
+            return row;
+          },
+          create: async ({ data }: { data: Row }) => {
+            const row = { ...chore(), ...data, id: `chore_${chores.size + 1}`, assignees: [] };
+            chores.set(row.id, row);
+            return row;
+          },
+        },
+        choreAssignee: {
+          create: async ({ data }: { data: { choreId: string; userId: string } }) => {
+            if (assignees.some((a) => a.choreId === data.choreId && a.userId === data.userId)) throw p2002();
+            assignees.push(data);
+            return data;
+          },
+          delete: async ({ where }: { where: { choreId_userId: { choreId: string; userId: string } } }) => {
+            const { choreId, userId } = where.choreId_userId;
+            assignees = assignees.filter((a) => !(a.choreId === choreId && a.userId === userId));
+            return {};
+          },
+          deleteMany: async ({ where }: { where: { choreId: string; userId: { in: string[] } } }) => {
+            const before = assignees.length;
+            assignees = assignees.filter((a) => !(a.choreId === where.choreId && where.userId.in.includes(a.userId)));
+            return { count: before - assignees.length };
+          },
+        },
+        completionRecord: {
+          create: async ({ data }: { data: { choreId: string; userId: string } }) => {
+            if (completionRecords.some((r) => r.choreId === data.choreId)) throw p2002();
+            completionRecords.push(data);
+            return data;
+          },
+        },
+        skipRecord: { create: async () => ({}) },
+      };
+      try {
+        return await callback(client as unknown as typeof tx);
+      } finally {
+        release();
+      }
+    });
+  }
+
+  const as = <T,>(userId: string, run: () => Promise<T>) => requestUser.run(userId, run);
+  const post = () => form({ choreId: "chore_1" });
+
+  it("leaves exactly one row when five members claim at once; the others are told someone else has it", async () => {
+    const users = ["user_1", "user_2", "user_3", "user_4", "user_5"];
+    useStore(chore({ assignmentMode: "claim" }), [], users);
+
+    const results = await Promise.all(users.map((u) => as(u, () => claimChore(idle, post()))));
+
+    expect(results.filter((r) => r.status === "success")).toEqual([
+      { status: "success", message: 'Claimed "Take out bins".' },
+    ]);
+    expect(results.filter((r) => r.status === "error")).toEqual(
+      Array(4).fill({ status: "error", message: CHORE_CLAIMED_BY_OTHER_ERROR }),
+    );
+    expect(assignees).toHaveLength(1);
+  });
+
+  it("leaves one row after a double submit by one member; the second is told it is already theirs", async () => {
+    useStore(chore({ assignmentMode: "claim" }), [], ["user_1"]);
+
+    const results = await Promise.all([
+      as("user_1", () => claimChore(idle, post())),
+      as("user_1", () => claimChore(idle, post())),
+    ]);
+
+    expect(results).toEqual([
+      { status: "success", message: 'Claimed "Take out bins".' },
+      { status: "error", message: CHORE_CLAIMED_BY_YOU_ERROR },
+    ]);
+    expect(assignees).toEqual([{ choreId: "chore_1", userId: "user_1" }]);
+  });
+
+  it("replaces a former member's row when two members race to claim it", async () => {
+    useStore(chore({ assignmentMode: "claim" }), ["user_gone"], ["user_1", "user_2"]);
+
+    const results = await Promise.all([
+      as("user_1", () => claimChore(idle, post())),
+      as("user_2", () => claimChore(idle, post())),
+    ]);
+
+    expect(results).toEqual([
+      { status: "success", message: 'Claimed "Take out bins".' },
+      { status: "error", message: CHORE_CLAIMED_BY_OTHER_ERROR },
+    ]);
+    expect(assignees).toEqual([{ choreId: "chore_1", userId: "user_1" }]);
+  });
+
+  it.each([
+    ["Release first", "release"],
+    ["Complete first", "complete"],
+  ])("serializes Release and Complete by the claimant (%s)", async (_label, first) => {
+    useStore(chore({ assignmentMode: "claim" }), ["user_1"], ["user_1"]);
+    const release = () => as("user_1", () => releaseChore(idle, post()));
+    const complete = () => as("user_1", () => completeChore(idle, post()));
+
+    const [a, b] = await Promise.all(first === "release" ? [release(), complete()] : [complete(), release()]);
+    const [releaseResult, completeResult] = first === "release" ? [a, b] : [b, a];
+
+    if (first === "release") {
+      expect(releaseResult).toEqual({ status: "success", message: 'Released "Take out bins".' });
+      expect(completeResult).toEqual({ status: "error", message: CHORE_UNCLAIMED_ERROR });
+      expect(chores.get("chore_1")!.status).toBe("pending");
+      expect(assignees).toEqual([]);
+    } else {
+      expect(completeResult).toEqual({ status: "success", message: 'Completed "Take out bins".' });
+      expect(releaseResult).toEqual({ status: "error", message: CHORE_NOT_PENDING_ERROR });
+      expect(chores.get("chore_1")!.status).toBe("completed");
+      expect(assignees).toEqual([{ choreId: "chore_1", userId: "user_1" }]);
+    }
+  });
+
+  it("refuses a claim after another member's skip with the not-pending message", async () => {
+    useStore(chore({ assignmentMode: "claim" }), [], ["user_1", "user_2"]);
+
+    const results = await Promise.all([
+      as("user_2", () => skipChore(idle, form({ choreId: "chore_1", reason: "Away" }))),
+      as("user_1", () => claimChore(idle, post())),
+    ]);
+
+    expect(results).toEqual([
+      { status: "success", message: 'Skipped "Take out bins".' },
+      { status: "error", message: CHORE_NOT_PENDING_ERROR },
+    ]);
+    expect(assignees).toEqual([]);
+  });
+
+  it("leaves a recurring claim chore's next occurrence unclaimed and claimable", async () => {
+    useStore(
+      chore({ assignmentMode: "claim", recurrence: "weekly", dueAt: new Date("2026-10-20T09:00:00.000Z") }),
+      ["user_1"],
+      ["user_1", "user_2"],
+    );
+
+    expect((await as("user_1", () => completeChore(idle, post()))).status).toBe("success");
+    const next = [...chores.values()].find((row) => row.id !== "chore_1")!;
+    expect(next).toMatchObject({ status: "pending", assignmentMode: "claim" });
+    expect(assignees.filter((a) => a.choreId === next.id)).toEqual([]);
+
+    expect(await as("user_2", () => claimChore(idle, form({ choreId: next.id })))).toEqual({
+      status: "success",
+      message: 'Claimed "Take out bins".',
+    });
   });
 });
