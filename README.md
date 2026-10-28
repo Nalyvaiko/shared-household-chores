@@ -45,6 +45,9 @@ migrations). `AUTH_SECRET` and `AUTH_URL` are covered in
 
 - **Local (Docker):** the default values in `.env.example` match the bundled
   Compose stack; `DIRECT_URL` equals `DATABASE_URL` because there is no pooler.
+- **Already have a `.env`?** Add `DIRECT_URL` to it, set to the same value as
+  your `DATABASE_URL`. Without it `npm run db:migrate`, `npm run db:reset` and
+  `npm run db:seed` fail with `Environment variable not found: DIRECT_URL`.
 - **Hosted (Neon / Supabase / Railway):** use the connection string the provider
   gives you. It has the shape
   `postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=require` — most hosted
@@ -59,8 +62,9 @@ docker compose up -d      # start (user/password/db all "chores", port 5432)
 docker compose down        # stop; add -v to also drop the data volume
 ```
 
-If you already run Postgres another way, point `DATABASE_URL` at it instead and
-create an empty `chores` database.
+If you already run Postgres another way, point `DATABASE_URL` and `DIRECT_URL`
+at it instead (both the same connection string) and create an empty `chores`
+database.
 
 ### 3. Apply migrations
 
