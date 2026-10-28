@@ -202,10 +202,12 @@ Acceptance criteria:
 
 ## 20. Edit and delete a chore
 Goal: Chore details can be corrected, and chores can be removed.
-Description: Add an edit form (same fields as creation, including recurrence and assignment) usable by any member, updating the `Chore` and its `ChoreAssignee` rows. Add a delete action restricted to admins that removes the chore and its assignee, completion, and skip records. Guard both with the authorization helpers and confirm destructive deletes in the UI.
+Description: Add an edit form for pending chores (same fields as creation, including recurrence and assignment), updating the `Chore` and its `ChoreAssignee` rows. Any member edits the details; only the chore's creator or an admin changes the assignment, and other members see it read-only. Completed and skipped chores can't be edited. Add a delete action restricted to admins that removes a chore of any status and its assignee, completion, and skip records. Guard both with the authorization helpers and confirm destructive deletes in the UI.
 Acceptance criteria:
-- Any member can edit a chore through a form with the same fields as creation (including recurrence and assignment), and changes persist, including assignee changes.
-- Only admins can delete a chore; the control is hidden or blocked for members.
+- Any member can edit a pending chore through a form with the same fields as creation, and changes persist.
+- Only the chore's creator or an admin can change the assignment (mode and assignees), and those changes persist; other members see it read-only.
+- Completed and skipped chores can't be edited.
+- Only admins can delete a chore, of any status; the control is hidden or blocked for members.
 - Deleting removes the chore and its assignee, completion, and skip records.
 - The delete is confirmed in the UI.
 - Both actions go through the authorization helpers.
