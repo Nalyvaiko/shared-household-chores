@@ -8,9 +8,14 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// `url` is the connection the app uses at runtime (pooled on hosted Postgres).
+// `directUrl` is a direct, non-pooled connection the Prisma CLI uses for
+// migrations (`migrate deploy` / `migrate dev`). Locally both point at the
+// same Docker database. See .env.example and the README deployment runbook.
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
