@@ -105,6 +105,7 @@ Acceptance criteria:
 - The page lists every membership in the caller's household with name, email, and role.
 - An admin can create an `InviteToken` (random token + expiry), see a copyable invite URL, and regenerate it.
 - An admin can remove a member after confirming, but not the last admin and not themselves through this control.
+- Removing a member unassigns them from the household's chores (#23).
 - Non-admins see the member list but not the invite or remove controls.
 - The account menu has a "Members" link for users who belong to a household.
 
@@ -219,3 +220,14 @@ Acceptance criteria:
 - `.env.example` and the README document `DATABASE_URL`, `AUTH_SECRET`, and `AUTH_URL`.
 - The build/deploy step runs `prisma migrate deploy`.
 - A clean Vercel deployment against hosted Postgres is verified: migrations and seed run, and sign-up through chore completion works in the deployed environment.
+
+## 23. Member removal: a removed member's chore rows
+Goal: When an admin removes a member, that user is no longer an assignee on any chore in that household; their completion and skip history stays, and so do the chores and invites they created. No schema change.
+Acceptance criteria:
+- `removeMember` deletes the removed user's `ChoreAssignee` rows on this household's chores (pending, completed and skipped), inside its existing transaction and Household lock, in the same transaction as the `Membership` delete.
+- Their rows in any other household and other members' rows on the same chores stay as they are.
+- A fixed chore left with no assignees stays `fixed` and shows "Unassigned"; a claim chore they held shows "Unclaimed" and can be claimed.
+- Their `CompletionRecord` and `SkipRecord` rows, `Chore.createdById` and `InviteToken.createdById` are kept.
+- Rows left by earlier removals are not migrated; #19 and #20 still handle them.
+- The success result and the existing error cases are unchanged, and no error case deletes a `ChoreAssignee` row.
+- If the `ChoreAssignee` delete fails, the whole removal rolls back.
