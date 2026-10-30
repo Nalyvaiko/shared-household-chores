@@ -127,8 +127,13 @@ export async function removeMember(
       if (admins <= 1) return "last-admin" as const;
     }
 
-    // Only the membership goes. The user's chores, assignments, records, and
-    // invites point at `User`, so they stay (cleanup is task #23).
+    // The user is unassigned from this household's chores (any status): a
+    // fixed chore left with nobody stays fixed and shows "Unassigned", a claim
+    // chore they held becomes unclaimed. Their completion and skip records,
+    // the chores they created, and the invites they issued stay as they are.
+    await tx.choreAssignee.deleteMany({
+      where: { userId: target.userId, chore: { householdId } },
+    });
     await tx.membership.delete({ where: { id: target.id } });
     return "removed" as const;
   });

@@ -18,6 +18,11 @@ const tx = {
   $queryRaw: vi.fn(),
   membership: { findUnique: vi.fn(), count: vi.fn(), delete: vi.fn() },
   inviteToken: { updateMany: vi.fn(), create: vi.fn() },
+  choreAssignee: { deleteMany: vi.fn() },
+  // Never expected to be called: removal keeps these rows.
+  chore: { update: vi.fn(), updateMany: vi.fn() },
+  completionRecord: { deleteMany: vi.fn(), updateMany: vi.fn() },
+  skipRecord: { deleteMany: vi.fn(), updateMany: vi.fn() },
 };
 const $transaction = vi.fn(async (callback: (client: typeof tx) => unknown) =>
   callback(tx),
@@ -65,6 +70,7 @@ function expectNoWrites() {
   expect(tx.inviteToken.updateMany).not.toHaveBeenCalled();
   expect(tx.inviteToken.create).not.toHaveBeenCalled();
   expect(tx.membership.delete).not.toHaveBeenCalled();
+  expect(tx.choreAssignee.deleteMany).not.toHaveBeenCalled();
 }
 
 function expectHouseholdLockedFirst(firstReadOrWrite: { mock: { invocationCallOrder: number[] } }) {
@@ -89,6 +95,10 @@ beforeEach(() => {
   tx.membership.delete.mockReset().mockResolvedValue({});
   tx.inviteToken.updateMany.mockReset().mockResolvedValue({ count: 1 });
   tx.inviteToken.create.mockReset().mockResolvedValue({ id: "invite_2" });
+  tx.choreAssignee.deleteMany.mockReset().mockResolvedValue({ count: 0 });
+  for (const model of [tx.chore, tx.completionRecord, tx.skipRecord]) {
+    for (const fn of Object.values(model)) fn.mockReset();
+  }
   redirect.mockClear();
   revalidatePath.mockClear();
 });
@@ -258,6 +268,114 @@ describe("removeMember", () => {
     await expect(removeMember({}, form(fields))).resolves.toEqual({ error });
     expectNoWrites();
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  describe("the removed member's chore rows", () => {
+    type Row = { choreId: string; userId: string };
+    // choreId -> the chore's household. Modes and statuses are in the ids.
+    const choreHousehold: Record<string, string> = {
+      fixed_solo: "household_1",
+      fixed_shared: "household_1",
+      claim_held: "household_1",
+      completed_fixed: "household_1",
+      skipped_claim: "household_1",
+      other_household: "household_9",
+    };
+    let rows: Row[];
+
+    beforeEach(() => {
+      rows = [
+        { choreId: "fixed_solo", userId: "user_2" },
+        { choreId: "fixed_shared", userId: "user_2" },
+        { choreId: "fixed_shared", userId: "user_1" },
+        { choreId: "fixed_shared", userId: "user_3" },
+        { choreId: "claim_held", userId: "user_2" },
+        { choreId: "completed_fixed", userId: "user_2" },
+        { choreId: "skipped_claim", userId: "user_2" },
+        { choreId: "other_household", userId: "user_2" },
+      ];
+      // Applies the `where` the action passes to an in-memory table, so the
+      // test checks which rows the filter actually matches.
+      tx.choreAssignee.deleteMany.mockImplementation(
+        async ({ where }: { where: { userId: string; chore: { householdId: string } } }) => {
+          const before = rows.length;
+          rows = rows.filter(
+            (row) =>
+              !(
+                row.userId === where.userId &&
+                choreHousehold[row.choreId] === where.chore.householdId
+              ),
+          );
+          return { count: before - rows.length };
+        },
+      );
+    });
+
+    it("deletes their assignee rows on this household's chores only", async () => {
+      await expect(removeMember({}, form({ membershipId: "membership_2" }))).resolves.toEqual({});
+
+      expect(tx.choreAssignee.deleteMany).toHaveBeenCalledTimes(1);
+      expect(tx.choreAssignee.deleteMany).toHaveBeenCalledWith({
+        where: { userId: "user_2", chore: { householdId: "household_1" } },
+      });
+      expect(rows).toEqual([
+        // Other members keep their places on a multi-assignee chore.
+        { choreId: "fixed_shared", userId: "user_1" },
+        { choreId: "fixed_shared", userId: "user_3" },
+        // Another household's chore is untouched.
+        { choreId: "other_household", userId: "user_2" },
+      ]);
+    });
+
+    it("leaves fixed, claim, completed and skipped chores without them and does not change the chores", async () => {
+      await removeMember({}, form({ membershipId: "membership_2" }));
+
+      const assignees = (choreId: string) => rows.filter((row) => row.choreId === choreId);
+      expect(assignees("fixed_solo")).toEqual([]);
+      expect(assignees("claim_held")).toEqual([]);
+      expect(assignees("completed_fixed")).toEqual([]);
+      expect(assignees("skipped_claim")).toEqual([]);
+      // Mode and creator stay: a fixed chore stays fixed ("Unassigned"), a
+      // claim chore becomes unclaimed.
+      expect(tx.chore.update).not.toHaveBeenCalled();
+      expect(tx.chore.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("keeps their completion and skip records, created chores, and invites", async () => {
+      await removeMember({}, form({ membershipId: "membership_2" }));
+
+      expect(tx.completionRecord.deleteMany).not.toHaveBeenCalled();
+      expect(tx.completionRecord.updateMany).not.toHaveBeenCalled();
+      expect(tx.skipRecord.deleteMany).not.toHaveBeenCalled();
+      expect(tx.skipRecord.updateMany).not.toHaveBeenCalled();
+      expect(tx.chore.updateMany).not.toHaveBeenCalled();
+      expect(tx.inviteToken.updateMany).not.toHaveBeenCalled();
+      expect(tx.inviteToken.create).not.toHaveBeenCalled();
+    });
+
+    it("deletes the rows in the same transaction, after the lock and before the membership", async () => {
+      await removeMember({}, form({ membershipId: "membership_2" }));
+
+      expect($transaction).toHaveBeenCalledTimes(1);
+      const first = (fn: { mock: { invocationCallOrder: number[] } }) =>
+        fn.mock.invocationCallOrder[0];
+      expect(first(tx.$queryRaw)).toBeLessThan(first(tx.choreAssignee.deleteMany));
+      expect(first(tx.choreAssignee.deleteMany)).toBeLessThan(first(tx.membership.delete));
+    });
+
+    it("rejects the whole removal when the delete fails, removing nothing", async () => {
+      const before = [...rows];
+      tx.choreAssignee.deleteMany.mockRejectedValue(new Error("db down"));
+
+      await expect(removeMember({}, form({ membershipId: "membership_2" }))).rejects.toThrow(
+        "db down",
+      );
+      // The error escapes the transaction callback, so Prisma rolls it back:
+      // the membership is never deleted and every assignee row is still there.
+      expect(tx.membership.delete).not.toHaveBeenCalled();
+      expect(rows).toEqual(before);
+      expect(revalidatePath).not.toHaveBeenCalled();
+    });
   });
 
   it("refuses a member with the admin-only message and writes nothing", async () => {
