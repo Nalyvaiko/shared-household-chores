@@ -27,7 +27,7 @@ describe("deployment configuration", () => {
     expect(pkg.scripts["vercel-build"]).toBe(
       "prisma migrate deploy && next build",
     );
-    // CI runs `npm run build` with no database, so it must not migrate.
+    // CI migrates in its own step, so `npm run build` must not migrate.
     expect(pkg.scripts.build).toBe("next build");
   });
 

@@ -136,9 +136,11 @@ with `npm test`. See [`_docs/testing.md`](_docs/testing.md) for conventions.
 
 ## CI
 
-`.github/workflows/ci.yml` runs lint, typecheck, tests, and the build on every
-push and pull request. CI runs `npm run build` (not `vercel-build`), so it needs
-no database and no environment variables.
+`.github/workflows/ci.yml` runs on every push and pull request. It starts a
+Postgres 16 service, applies the committed migrations (`prisma migrate deploy`),
+and fails if `prisma/schema.prisma` has changes with no migration
+(`prisma migrate diff --exit-code`). Then it runs lint, typecheck, tests, and
+`npm run build` (not `vercel-build`). The seed never runs in CI.
 
 ## Environment variables
 
