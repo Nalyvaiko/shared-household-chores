@@ -8,6 +8,26 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: chores
+          POSTGRES_PASSWORD: chores
+          POSTGRES_DB: chores
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chores -d chores"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://chores:chores@localhost:5432/chores?schema=public
+      DIRECT_URL: postgresql://chores:chores@localhost:5432/chores?schema=public
+
     steps:
       - uses: actions/checkout@v4
 
@@ -16,8 +36,22 @@ jobs:
           node-version: 24
           cache: npm
 
+      # `postinstall` runs `prisma generate`, so the @prisma/client types exist
+      # before typecheck.
       - name: Install dependencies
         run: npm ci
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # Exit code 2 means the migrated database differs from schema.prisma,
+      # i.e. a schema change has no migration. Fails the build.
+      - name: Check schema matches migrations
+        run: >-
+          npx prisma migrate diff
+          --from-url "$DIRECT_URL"
+          --to-schema-datamodel prisma/schema.prisma
+          --exit-code
 
       - name: Lint
         run: npm run lint
