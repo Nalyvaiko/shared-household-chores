@@ -231,3 +231,11 @@ Acceptance criteria:
 - Rows left by earlier removals are not migrated; #19 and #20 still handle them.
 - The success result and the existing error cases are unchanged, and no error case deletes a `ChoreAssignee` row.
 - If the `ChoreAssignee` delete fails, the whole removal rolls back.
+
+## 25. Admin household settings page (rename household)
+Goal: An admin can view and change household settings (at minimum, the household name).
+Acceptance criteria:
+- A settings page (e.g. `/household/settings`) shows the current household name.
+- An admin can rename the household; the new name is validated (non-empty, trimmed, length-bounded) and persisted.
+- Non-admins either do not see the page/control or are blocked server-side (`requireAdmin`).
+- The header / app shell reflects the new name after a rename.
