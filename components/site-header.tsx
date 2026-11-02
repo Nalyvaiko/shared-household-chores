@@ -13,20 +13,31 @@ async function signOutAction() {
 export async function SiteHeader() {
   // A session whose user was deleted resolves to `null`, so it shows the
   // sign-in links. Only the email, and whether the user has a household (for the
-  // Members item), go to the client menu.
+  // household items), go to the client menu. The household name is rendered
+  // here, on the server.
   const user = await getCurrentUser();
-  const hasHousehold = user ? (await getCurrentHousehold()) !== null : false;
+  const current = user ? await getCurrentHousehold() : null;
 
   return (
     <header className="border-b">
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
-        <span className="text-base leading-tight font-semibold">
-          Shared Household Chores
-        </span>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-base leading-tight font-semibold">
+            Shared Household Chores
+          </span>
+          {current ? (
+            <span
+              className="truncate text-sm text-muted-foreground"
+              title={current.household.name}
+            >
+              {current.household.name}
+            </span>
+          ) : null}
+        </div>
         {user ? (
           <UserMenu
             email={user.email}
-            hasHousehold={hasHousehold}
+            hasHousehold={current !== null}
             signOutAction={signOutAction}
           />
         ) : (
