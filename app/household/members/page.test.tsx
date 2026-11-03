@@ -121,7 +121,8 @@ describe("/household/members page", () => {
   it("falls back to the email when the name is null", async () => {
     const html = await render();
 
-    expect(html.match(/bob@example\.com/g)).toHaveLength(2);
+    // Shown as the name and as the email line (the role control's label aside).
+    expect(html.match(/>bob@example\.com</g)).toHaveLength(2);
   });
 
   it("shows an admin the create button when there is no active invite", async () => {
@@ -154,6 +155,30 @@ describe("/household/members page", () => {
     expect(html).not.toContain("Invite link");
     expect(html).not.toContain("Create invite link");
     expect(html).not.toContain(">Remove<");
+    expect(html).not.toContain("Make admin");
+    expect(html).not.toContain("Make member");
     expect(inviteFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("shows an admin a role control on every other row, but not on their own", async () => {
+    membershipFindMany.mockResolvedValue([
+      ...rows,
+      { id: "membership_3", role: "admin", user: { name: "Carol", email: "carol@example.com" } },
+    ]);
+
+    const html = await render();
+
+    // Bob (member) can be made an admin; Carol (admin) can be made a member.
+    expect(html.match(/>Make admin</g)).toHaveLength(1);
+    expect(html.match(/>Make member</g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Make admin: bob@example.com"');
+    expect(html).toContain('aria-label="Make member: Carol"');
+    // The caller's own row (Alice) has no role control.
+    expect(html).not.toMatch(/aria-label="Make (admin|member): Alice"/);
+    expect(html).toContain('name="role" value="admin"');
+    expect(html).toContain('name="role" value="member"');
+    expect(html).toContain('name="membershipId" value="membership_2"');
+    expect(html).toContain('name="membershipId" value="membership_3"');
+    expect(html).not.toContain('name="membershipId" value="membership_1"');
   });
 });

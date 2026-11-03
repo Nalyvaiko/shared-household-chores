@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ADMIN_ONLY_ERROR,
+  CHANGE_OWN_ROLE_ERROR,
+  INVALID_ROLE_ERROR,
   LAST_ADMIN_ERROR,
   MEMBER_GONE_ERROR,
   REMOVE_SELF_ERROR,
@@ -16,7 +18,7 @@ const findUnique = vi.fn();
 const findFirst = vi.fn();
 const tx = {
   $queryRaw: vi.fn(),
-  membership: { findUnique: vi.fn(), count: vi.fn(), delete: vi.fn() },
+  membership: { findUnique: vi.fn(), count: vi.fn(), delete: vi.fn(), update: vi.fn() },
   inviteToken: { updateMany: vi.fn(), create: vi.fn() },
   choreAssignee: { deleteMany: vi.fn() },
   // Never expected to be called: removal keeps these rows.
@@ -40,7 +42,9 @@ vi.mock("next/navigation", () => ({ redirect }));
 const revalidatePath = vi.fn();
 vi.mock("next/cache", () => ({ revalidatePath }));
 
-const { createInvite, regenerateInvite, removeMember } = await import("./actions");
+const { changeMemberRole, createInvite, regenerateInvite, removeMember } = await import(
+  "./actions"
+);
 
 const NOW = new Date("2026-10-16T12:00:00Z");
 const SEVEN_DAYS_LATER = new Date("2026-10-23T12:00:00Z");
@@ -70,6 +74,7 @@ function expectNoWrites() {
   expect(tx.inviteToken.updateMany).not.toHaveBeenCalled();
   expect(tx.inviteToken.create).not.toHaveBeenCalled();
   expect(tx.membership.delete).not.toHaveBeenCalled();
+  expect(tx.membership.update).not.toHaveBeenCalled();
   expect(tx.choreAssignee.deleteMany).not.toHaveBeenCalled();
 }
 
@@ -93,6 +98,7 @@ beforeEach(() => {
   tx.membership.findUnique.mockReset().mockResolvedValue(callerAdmin);
   tx.membership.count.mockReset().mockResolvedValue(2);
   tx.membership.delete.mockReset().mockResolvedValue({});
+  tx.membership.update.mockReset().mockResolvedValue({});
   tx.inviteToken.updateMany.mockReset().mockResolvedValue({ count: 1 });
   tx.inviteToken.create.mockReset().mockResolvedValue({ id: "invite_2" });
   tx.choreAssignee.deleteMany.mockReset().mockResolvedValue({ count: 0 });
@@ -394,6 +400,188 @@ describe("removeMember", () => {
     await expect(removeMember({}, form({ membershipId: "membership_2" }))).rejects.toThrow(
       "NEXT_REDIRECT /signin",
     );
+    expectNoWrites();
+  });
+});
+
+describe("changeMemberRole", () => {
+  const member = membership("membership_2", "user_2", "member");
+  const otherAdmin = membership("membership_3", "user_3", "admin");
+
+  function arrange(
+    caller: ReturnType<typeof membership> | null,
+    target: ReturnType<typeof membership> | null,
+  ) {
+    tx.membership.findUnique.mockImplementation(async ({ where }) =>
+      "userId_householdId" in where ? caller : target,
+    );
+  }
+
+  beforeEach(() => {
+    arrange(callerAdmin, member);
+  });
+
+  it("promotes a member to admin and revalidates the page and the layout", async () => {
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_2", role: "admin" })),
+    ).resolves.toEqual({});
+
+    expect(tx.membership.update).toHaveBeenCalledTimes(1);
+    expect(tx.membership.update).toHaveBeenCalledWith({
+      where: { id: "membership_2" },
+      data: { role: "admin" },
+    });
+    // Promotion never needs the admin count.
+    expect(tx.membership.count).not.toHaveBeenCalled();
+    expect(tx.membership.delete).not.toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith("/household/members");
+    expect(revalidatePath).toHaveBeenCalledWith("/", "layout");
+  });
+
+  it("demotes an admin to member while another admin stays", async () => {
+    arrange(callerAdmin, otherAdmin);
+    tx.membership.count.mockResolvedValue(2);
+
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_3", role: "member" })),
+    ).resolves.toEqual({});
+
+    expect(tx.membership.count).toHaveBeenCalledWith({
+      where: { householdId: "household_1", role: "admin" },
+    });
+    expect(tx.membership.update).toHaveBeenCalledWith({
+      where: { id: "membership_3" },
+      data: { role: "member" },
+    });
+  });
+
+  it("locks the household row before re-reading the caller and then the target", async () => {
+    await changeMemberRole({}, form({ membershipId: "membership_2", role: "admin" }));
+
+    expectHouseholdLockedFirst(tx.membership.findUnique);
+    const [first, second] = tx.membership.findUnique.mock.calls.map((call) => call[0]);
+    expect(first).toEqual({
+      where: { userId_householdId: { userId: "user_1", householdId: "household_1" } },
+    });
+    expect(second).toEqual({ where: { id: "membership_2" } });
+    expect(tx.membership.findUnique.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.membership.update.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("counts the admins under the lock before demoting", async () => {
+    arrange(callerAdmin, otherAdmin);
+
+    await changeMemberRole({}, form({ membershipId: "membership_3", role: "member" }));
+
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.membership.count.mock.invocationCallOrder[0],
+    );
+    expect(tx.membership.count.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.membership.update.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("succeeds without a write when the role is already the target", async () => {
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_2", role: "member" })),
+    ).resolves.toEqual({});
+
+    expectNoWrites();
+  });
+
+  it.each<[string, () => void, Record<string, string>, string]>([
+    [
+      "the caller's own role",
+      () => arrange(callerAdmin, callerAdmin),
+      { membershipId: "membership_1", role: "member" },
+      CHANGE_OWN_ROLE_ERROR,
+    ],
+    [
+      "the last admin",
+      () => {
+        arrange(callerAdmin, otherAdmin);
+        tx.membership.count.mockResolvedValue(1);
+      },
+      { membershipId: "membership_3", role: "member" },
+      LAST_ADMIN_ERROR,
+    ],
+    [
+      "a membership of another household",
+      () => arrange(callerAdmin, membership("membership_9", "user_9", "member", "household_9")),
+      { membershipId: "membership_9", role: "admin" },
+      MEMBER_GONE_ERROR,
+    ],
+    [
+      "an unknown id",
+      () => arrange(callerAdmin, null),
+      { membershipId: "membership_404", role: "admin" },
+      MEMBER_GONE_ERROR,
+    ],
+    ["a missing id", () => {}, { role: "admin" }, MEMBER_GONE_ERROR],
+    [
+      "a caller who lost admin before the lock was taken",
+      () => arrange(membership("membership_1", "user_1", "member"), member),
+      { membershipId: "membership_2", role: "admin" },
+      ADMIN_ONLY_ERROR,
+    ],
+  ])("refuses to change %s and writes nothing", async (_label, setup, fields, error) => {
+    setup();
+
+    await expect(changeMemberRole({}, form(fields))).resolves.toEqual({ error });
+    expectNoWrites();
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it.each([["owner"], ["ADMIN"], [""], ["admin "]])(
+    "refuses the role value %j before opening a transaction",
+    async (role) => {
+      await expect(
+        changeMemberRole({}, form({ membershipId: "membership_2", role })),
+      ).resolves.toEqual({ error: INVALID_ROLE_ERROR });
+      expect($transaction).not.toHaveBeenCalled();
+      expectNoWrites();
+    },
+  );
+
+  it("refuses a missing role value", async () => {
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_2" })),
+    ).resolves.toEqual({ error: INVALID_ROLE_ERROR });
+    expect($transaction).not.toHaveBeenCalled();
+    expectNoWrites();
+  });
+
+  it("redirects a caller removed before the lock to /household/new, after the transaction", async () => {
+    arrange(null, member);
+
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_2", role: "admin" })),
+    ).rejects.toThrow("NEXT_REDIRECT /household/new");
+
+    // The transaction resolved normally; the redirect came after it.
+    expect($transaction).toHaveBeenCalledTimes(1);
+    await expect($transaction.mock.results[0].value).resolves.toBe("caller-gone");
+    expectNoWrites();
+  });
+
+  it("refuses a member with the admin-only message and writes nothing", async () => {
+    findFirst.mockResolvedValue({ ...membership("membership_1", "user_1", "member"), household });
+
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_2", role: "admin" })),
+    ).resolves.toEqual({ error: ADMIN_ONLY_ERROR });
+    expect($transaction).not.toHaveBeenCalled();
+    expectNoWrites();
+  });
+
+  it("redirects a signed-out caller to /signin", async () => {
+    auth.mockResolvedValue(null);
+
+    await expect(
+      changeMemberRole({}, form({ membershipId: "membership_2", role: "admin" })),
+    ).rejects.toThrow("NEXT_REDIRECT /signin");
     expectNoWrites();
   });
 });
