@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 
+import { ChangeRoleButton } from "@/app/household/members/change-role-button";
 import { InviteSection } from "@/app/household/members/invite-section";
 import { RemoveMemberButton } from "@/app/household/members/remove-member-button";
 import { requireHousehold, requireUser } from "@/lib/auth/guards";
@@ -77,7 +78,14 @@ export default async function MembersPage() {
               <div className="flex items-center gap-3">
                 <span className="text-sm">{ROLE_LABELS[row.role]}</span>
                 {isAdmin && !isSelf ? (
-                  <RemoveMemberButton membershipId={row.id} displayName={displayName} />
+                  <>
+                    <ChangeRoleButton
+                      membershipId={row.id}
+                      displayName={displayName}
+                      currentRole={row.role}
+                    />
+                    <RemoveMemberButton membershipId={row.id} displayName={displayName} />
+                  </>
                 ) : null}
               </div>
             </li>

@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
+import { redirect } from "next/navigation";
+import type { Prisma, Role } from "@prisma/client";
 
 import { ForbiddenError, requireAdmin, type CurrentHousehold } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
@@ -12,6 +13,8 @@ import {
 } from "@/lib/household/invite";
 import {
   ADMIN_ONLY_ERROR,
+  CHANGE_OWN_ROLE_ERROR,
+  INVALID_ROLE_ERROR,
   LAST_ADMIN_ERROR,
   MEMBER_GONE_ERROR,
   REMOVE_SELF_ERROR,
@@ -42,17 +45,25 @@ async function adminOrNull(): Promise<CurrentHousehold | null> {
 /**
  * Locks the household row so that invite and member changes for one household
  * run one at a time, then re-reads the caller's membership: it may have been
- * removed or demoted since the request started.
+ * removed (`null`) or demoted since the request started.
  */
-async function lockAndReadCaller(
+async function lockAndReadMembership(
   tx: Prisma.TransactionClient,
   current: CurrentHousehold,
 ) {
   const householdId = current.household.id;
   await tx.$queryRaw`SELECT id FROM "Household" WHERE id = ${householdId} FOR UPDATE`;
-  const caller = await tx.membership.findUnique({
+  return tx.membership.findUnique({
     where: { userId_householdId: { userId: current.membership.userId, householdId } },
   });
+}
+
+/** `lockAndReadMembership()`, but only an admin caller is returned. */
+async function lockAndReadCaller(
+  tx: Prisma.TransactionClient,
+  current: CurrentHousehold,
+) {
+  const caller = await lockAndReadMembership(tx, current);
   return caller?.role === "admin" ? caller : null;
 }
 
@@ -149,6 +160,72 @@ export async function removeMember(
       return { error: LAST_ADMIN_ERROR };
     case "removed":
       revalidatePath(MEMBERS_PATH);
+      return {};
+  }
+}
+
+const ROLES: readonly Role[] = ["admin", "member"];
+
+function parseRole(value: FormDataEntryValue | null): Role | null {
+  return ROLES.find((role) => role === value) ?? null;
+}
+
+export async function changeMemberRole(
+  _prev: MembersActionState,
+  formData: FormData,
+): Promise<MembersActionState> {
+  const current = await adminOrNull();
+  if (!current) return { error: ADMIN_ONLY_ERROR };
+  const householdId = current.household.id;
+
+  const role = parseRole(formData.get("role"));
+  if (!role) return { error: INVALID_ROLE_ERROR };
+  const value = formData.get("membershipId");
+  const membershipId = typeof value === "string" ? value : "";
+
+  // Redirects throw, so they stay outside the transaction callback.
+  const outcome = await db.$transaction(async (tx) => {
+    const caller = await lockAndReadMembership(tx, current);
+    if (!caller) return "caller-gone" as const;
+    if (caller.role !== "admin") return "forbidden" as const;
+
+    const target = membershipId
+      ? await tx.membership.findUnique({ where: { id: membershipId } })
+      : null;
+    if (!target || target.householdId !== householdId) return "gone" as const;
+    if (target.id === caller.id) return "self" as const;
+    if (target.role === role) return "unchanged" as const;
+    if (target.role === "admin") {
+      // Demoting an admin is checked under the lock, so two admins demoting or
+      // removing each other at once cannot leave the household without one.
+      const admins = await tx.membership.count({ where: { householdId, role: "admin" } });
+      if (admins <= 1) return "last-admin" as const;
+    }
+
+    await tx.membership.update({ where: { id: target.id }, data: { role } });
+    return "changed" as const;
+  });
+
+  if (outcome === "caller-gone") {
+    revalidatePath("/", "layout");
+    redirect("/household/new");
+  }
+
+  switch (outcome) {
+    case "forbidden":
+      return { error: ADMIN_ONLY_ERROR };
+    case "gone":
+      return { error: MEMBER_GONE_ERROR };
+    case "self":
+      return { error: CHANGE_OWN_ROLE_ERROR };
+    case "last-admin":
+      return { error: LAST_ADMIN_ERROR };
+    case "unchanged":
+      return {};
+    case "changed":
+      revalidatePath(MEMBERS_PATH);
+      // Admin-only links and forms elsewhere depend on the role.
+      revalidatePath("/", "layout");
       return {};
   }
 }
