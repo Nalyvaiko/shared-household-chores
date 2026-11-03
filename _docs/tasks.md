@@ -239,3 +239,12 @@ Acceptance criteria:
 - An admin can rename the household; the new name is validated (non-empty, trimmed, length-bounded) and persisted.
 - Non-admins either do not see the page/control or are blocked server-side (`requireAdmin`).
 - The header / app shell reflects the new name after a rename.
+
+## 26. Change a member's role between admin and member
+Goal: An admin can change another member's role between `admin` and `member`.
+Acceptance criteria:
+- On the members page (task #10), an admin can promote a `member` to `admin` and demote an `admin` to `member`.
+- The last remaining `admin` cannot be demoted (mirror of task #10's "last admin" removal guard). Like task #10's remove action, the role change locks the household row (`SELECT id FROM "Household" WHERE id = ... FOR UPDATE`) and then re-reads the caller's and the target's memberships inside the transaction, so two admins demoting or removing each other at the same moment cannot leave the household with no admin.
+- An admin cannot change their own role through this control.
+- Non-admins do not see the control and the action is blocked server-side (`requireAdmin`).
+- The change is reflected in the member list immediately.
