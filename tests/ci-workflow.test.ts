@@ -24,6 +24,12 @@ describe("CI workflow", () => {
     expect(workflow).toMatch(/DIRECT_URL: postgresql:\/\/\S+@localhost:5432\//);
   });
 
+  it("uses action majors that run on Node 24", () => {
+    expect(workflow).toContain("actions/checkout@v7");
+    expect(workflow).toContain("actions/setup-node@v7");
+    expect(workflow).toContain("node-version: 24");
+  });
+
   it("keeps the npm cache", () => {
     expect(workflow).toContain("cache: npm");
   });
