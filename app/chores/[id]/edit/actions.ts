@@ -31,6 +31,7 @@ import {
   resolveEditedDueAt,
 } from "@/lib/chore/validation";
 import { db } from "@/lib/db";
+import { formId } from "@/lib/form-id";
 
 export type DeleteChoreState = {
   /** A refusal, shown next to the delete control. */
@@ -183,19 +184,19 @@ export async function updateChore(
   const current = await requireHousehold();
   const householdId = current.household.id;
   const userId = current.membership.userId;
-  const choreId = field(formData, "choreId");
+  const choreId = formId(formData, "choreId");
   const parsed = parseFields(formData);
   const { values } = parsed;
+  // An id that cannot be a chore's gets the unknown-chore answer, unqueried.
+  if (choreId === null) return { values, formError: CHORE_GONE_ERROR };
 
   if (hasFieldError(parsed)) {
     // Nothing will be written, so these reads take no lock. They still run,
     // so every invalid field is reported at once.
-    const stored = choreId
-      ? await db.chore.findFirst({
-          where: { id: choreId, householdId },
-          select: { createdById: true, dueAt: true, assignmentMode: true, status: true },
-        })
-      : null;
+    const stored = await db.chore.findFirst({
+      where: { id: choreId, householdId },
+      select: { createdById: true, dueAt: true, assignmentMode: true, status: true },
+    });
     if (!stored) return { values, formError: CHORE_GONE_ERROR };
     if (stored.status !== "pending") return { values, formError: CHORE_NOT_PENDING_ERROR };
     const checked = await check(db, parsed, stored, current.membership, householdId);
@@ -292,7 +293,9 @@ export async function deleteChore(
     throw error;
   }
   const householdId = current.household.id;
-  const choreId = field(formData, "choreId");
+  const choreId = formId(formData, "choreId");
+  // Like an unknown chore: not revalidated, and nothing queried.
+  if (choreId === null) return { error: CHORE_GONE_ERROR };
 
   const outcome = await inHouseholdTransaction(
     householdId,

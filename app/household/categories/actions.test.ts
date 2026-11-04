@@ -315,6 +315,19 @@ describe("deleteCategory", () => {
     expect(tx.category.findUnique).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a NUL byte", "custom_1\u0000"],
+    ["over-long", "c".repeat(201)],
+  ])("answers an id with %s with the gone message without querying", async (_label, categoryId) => {
+    await expect(deleteCategory({}, form({ categoryId }))).resolves.toEqual({
+      error: CATEGORY_GONE_ERROR,
+    });
+    expect($transaction).not.toHaveBeenCalled();
+    expect(tx.category.findUnique).not.toHaveBeenCalled();
+    expectNoWrites();
+    expect(revalidatePath).toHaveBeenCalledWith("/household/categories");
+  });
+
   it("redirects to /household/new, writing nothing, when the caller's membership is gone", async () => {
     tx.membership.findUnique.mockResolvedValue(null);
 

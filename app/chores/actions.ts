@@ -28,6 +28,7 @@ import { completeChoreInTransaction, type CompleteChoreOutcome } from "@/lib/cho
 import { skipChoreInTransaction, type SkipChoreOutcome } from "@/lib/chore/skip";
 import { inHouseholdTransaction } from "@/lib/chore/transaction";
 import { skipReasonSchema } from "@/lib/chore/validation";
+import { formId } from "@/lib/form-id";
 
 /** The outcome of a chore row action, shown in the page's message region. */
 export type ChoreActionState =
@@ -81,6 +82,16 @@ function formString(formData: FormData, name: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * The answer to a posted id that cannot be a chore's: the same as for an
+ * unknown chore, given without querying.
+ */
+function goneWithoutQuery(): ChoreActionState {
+  revalidatePath("/");
+  revalidatePath("/chores");
+  return { status: "error", message: CHORE_GONE_ERROR };
+}
+
 /** Redirects a removed caller; otherwise refreshes both lists. */
 function afterOutcome<T extends { kind: string }>(
   outcome: T,
@@ -106,7 +117,8 @@ export async function completeChore(
   const current = await requireHousehold();
   const householdId = current.household.id;
   const userId = current.membership.userId;
-  const choreId = formString(formData, "choreId");
+  const choreId = formId(formData, "choreId");
+  if (choreId === null) return goneWithoutQuery();
 
   const outcome = await inHouseholdTransaction(householdId, userId, (tx) =>
     completeChoreInTransaction(tx, { choreId, householdId, userId, now }),
@@ -130,7 +142,7 @@ export async function skipChore(
   const current = await requireHousehold();
   const householdId = current.household.id;
   const userId = current.membership.userId;
-  const choreId = formString(formData, "choreId");
+  const choreId = formId(formData, "choreId");
   const submitted = formString(formData, "reason");
 
   // Checked before the transaction: a refused reason writes nothing.
@@ -141,10 +153,11 @@ export async function skipChore(
     return {
       status: "error",
       message: parsed.error.issues[0].message,
-      skipDraft: { choreId, reason: submitted },
+      skipDraft: { choreId: choreId ?? "", reason: submitted },
     };
   }
   const reason = parsed.data;
+  if (choreId === null) return goneWithoutQuery();
 
   const outcome = await inHouseholdTransaction(householdId, userId, (tx) =>
     skipChoreInTransaction(tx, { choreId, householdId, userId, reason, now }),
@@ -166,7 +179,8 @@ export async function claimChore(
   const current = await requireHousehold();
   const householdId = current.household.id;
   const userId = current.membership.userId;
-  const choreId = formString(formData, "choreId");
+  const choreId = formId(formData, "choreId");
+  if (choreId === null) return goneWithoutQuery();
 
   const outcome = await inHouseholdTransaction(
     householdId,
@@ -191,7 +205,8 @@ export async function releaseChore(
   const current = await requireHousehold();
   const householdId = current.household.id;
   const userId = current.membership.userId;
-  const choreId = formString(formData, "choreId");
+  const choreId = formId(formData, "choreId");
+  if (choreId === null) return goneWithoutQuery();
 
   const outcome = await inHouseholdTransaction(
     householdId,

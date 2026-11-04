@@ -616,6 +616,35 @@ describe("createChore: refusals", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/chores/new");
   });
 
+  it.each([
+    ["a NUL byte", "cat_kitchen\u0000"],
+    ["over-long", "c".repeat(201)],
+  ])("refuses a category id with %s with the same message without looking it up", async (_label, categoryId) => {
+    for (const fields of [{ categoryId }, { categoryId, title: "" }]) {
+      const state = await createChore(initial, form(fields));
+      expect(state.errors?.categoryId).toEqual([CHORE_CATEGORY_GONE_ERROR]);
+      expect(state.values.categoryId).toBe("");
+    }
+    expect(tx.category.findUnique).not.toHaveBeenCalled();
+    expect(categoryFindUnique).not.toHaveBeenCalled();
+    expectNothingSaved();
+  });
+
+  it.each([
+    ["a NUL byte", "user_2\u0000"],
+    ["over-long", "u".repeat(201)],
+  ])("refuses an assignee id with %s with the same message without looking it up", async (_label, bad) => {
+    for (const fields of [{ assigneeIds: [bad] }, { assigneeIds: [bad], title: "" }]) {
+      const state = await createChore(initial, form(fields));
+      expect(state.errors?.assigneeIds).toEqual([CHORE_ASSIGNEE_GONE_ERROR]);
+      expect(state.values.assigneeIds).toEqual([]);
+    }
+    // The only ticked id is malformed, so no member lookup runs at all.
+    expect(tx.membership.findMany).not.toHaveBeenCalled();
+    expect(membershipFindMany).not.toHaveBeenCalled();
+    expectNothingSaved();
+  });
+
   it("redirects a caller removed mid-request to /household/new and saves nothing", async () => {
     tx.membership.findUnique.mockResolvedValue(null);
 

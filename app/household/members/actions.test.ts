@@ -276,6 +276,19 @@ describe("removeMember", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a NUL byte", "membership_2\u0000"],
+    ["over-long", "m".repeat(201)],
+  ])("answers an id with %s with the gone message without querying", async (_label, membershipId) => {
+    await expect(removeMember({}, form({ membershipId }))).resolves.toEqual({
+      error: MEMBER_GONE_ERROR,
+    });
+    expect($transaction).not.toHaveBeenCalled();
+    expect(tx.membership.findUnique).not.toHaveBeenCalled();
+    expectNoWrites();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
   describe("the removed member's chore rows", () => {
     type Row = { choreId: string; userId: string };
     // choreId -> the chore's household. Modes and statuses are in the ids.
@@ -529,6 +542,20 @@ describe("changeMemberRole", () => {
     setup();
 
     await expect(changeMemberRole({}, form(fields))).resolves.toEqual({ error });
+    expectNoWrites();
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a NUL byte", "membership_2\u0000"],
+    ["over-long", "m".repeat(201)],
+  ])("answers an id with %s with the gone message without querying", async (_label, membershipId) => {
+    await expect(changeMemberRole({}, form({ membershipId, role: "admin" }))).resolves.toEqual({
+      error: MEMBER_GONE_ERROR,
+    });
+    expect($transaction).not.toHaveBeenCalled();
+    expect(tx.membership.findUnique).not.toHaveBeenCalled();
     expectNoWrites();
     expect(revalidatePath).not.toHaveBeenCalled();
     expect(redirect).not.toHaveBeenCalled();

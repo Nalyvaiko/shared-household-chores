@@ -6,6 +6,7 @@ import type { Prisma, Role } from "@prisma/client";
 
 import { ForbiddenError, requireAdmin, type CurrentHousehold } from "@/lib/auth/guards";
 import { db } from "@/lib/db";
+import { formId } from "@/lib/form-id";
 import {
   activeInviteWhere,
   generateInviteToken,
@@ -121,16 +122,15 @@ export async function removeMember(
   if (!current) return { error: ADMIN_ONLY_ERROR };
   const householdId = current.household.id;
 
-  const value = formData.get("membershipId");
-  const membershipId = typeof value === "string" ? value : "";
+  const membershipId = formId(formData, "membershipId");
+  // An id that cannot be a membership's gets the unknown-member answer, unqueried.
+  if (membershipId === null) return { error: MEMBER_GONE_ERROR };
 
   const outcome = await db.$transaction(async (tx) => {
     const caller = await lockAndReadCaller(tx, current);
     if (!caller) return "forbidden" as const;
 
-    const target = membershipId
-      ? await tx.membership.findUnique({ where: { id: membershipId } })
-      : null;
+    const target = await tx.membership.findUnique({ where: { id: membershipId } });
     if (!target || target.householdId !== householdId) return "gone" as const;
     if (target.id === caller.id) return "self" as const;
     if (target.role === "admin") {
@@ -180,8 +180,9 @@ export async function changeMemberRole(
 
   const role = parseRole(formData.get("role"));
   if (!role) return { error: INVALID_ROLE_ERROR };
-  const value = formData.get("membershipId");
-  const membershipId = typeof value === "string" ? value : "";
+  const membershipId = formId(formData, "membershipId");
+  // An id that cannot be a membership's gets the unknown-member answer, unqueried.
+  if (membershipId === null) return { error: MEMBER_GONE_ERROR };
 
   // Redirects throw, so they stay outside the transaction callback.
   const outcome = await db.$transaction(async (tx) => {
@@ -189,9 +190,7 @@ export async function changeMemberRole(
     if (!caller) return "caller-gone" as const;
     if (caller.role !== "admin") return "forbidden" as const;
 
-    const target = membershipId
-      ? await tx.membership.findUnique({ where: { id: membershipId } })
-      : null;
+    const target = await tx.membership.findUnique({ where: { id: membershipId } });
     if (!target || target.householdId !== householdId) return "gone" as const;
     if (target.id === caller.id) return "self" as const;
     if (target.role === role) return "unchanged" as const;
