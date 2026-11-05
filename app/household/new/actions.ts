@@ -43,9 +43,11 @@ export async function createHousehold(
   const outcome = await db.$transaction(async (tx) => {
     // Locking the user's row serialises concurrent submits for the same user:
     // a second transaction waits here, then its re-check sees the membership
-    // the first one created.
+    // the first one created. FOR NO KEY UPDATE still conflicts with itself
+    // (the invite join takes the same lock), but not with the FOR KEY SHARE
+    // that inserts referencing this user take, so it cannot deadlock with them.
     const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+      SELECT id FROM "User" WHERE id = ${user.id} FOR NO KEY UPDATE`;
     if (locked.length === 0) return "user-deleted" as const;
 
     const existing = await tx.membership.findFirst({ where: { userId: user.id } });

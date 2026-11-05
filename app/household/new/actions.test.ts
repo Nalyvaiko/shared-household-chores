@@ -103,7 +103,7 @@ describe("createHousehold", () => {
     await expect(submit({ name: "Home" })).rejects.toThrow("NEXT_REDIRECT /");
 
     const [strings, ...values] = tx.$queryRaw.mock.calls[0];
-    expect(strings.join("?")).toMatch(/SELECT id FROM "User" WHERE id = \? FOR UPDATE/);
+    expect(strings.join("?")).toMatch(/SELECT id FROM "User" WHERE id = \? FOR NO KEY UPDATE/);
     expect(values).toEqual(["user_1"]);
     expect(tx.membership.findFirst).toHaveBeenCalledWith({ where: { userId: "user_1" } });
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
