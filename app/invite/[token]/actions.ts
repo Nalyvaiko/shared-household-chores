@@ -30,6 +30,10 @@ export async function joinHousehold(
   // The page may be stale, so everything it showed is checked again here.
   // Locks are taken User -> Household -> InviteToken. Regenerating a link
   // (task #10) takes Household -> InviteToken, so the two cannot deadlock.
+  // The User lock is FOR NO KEY UPDATE, not FOR UPDATE: inserting a row that
+  // references a user (a regenerated InviteToken's `createdById`, a
+  // Membership, a ChoreAssignee) takes FOR KEY SHARE on that User row, which
+  // FOR UPDATE would block while this transaction waits for the Household.
   const outcome = await db.$transaction(async (tx) => {
     const invite = await tx.inviteToken.findUnique({
       where: { token },
@@ -40,7 +44,7 @@ export async function joinHousehold(
     // Serialises this user's joins and household creation (task #9): a second
     // request waits here, then sees the membership the first one created.
     const lockedUser = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "User" WHERE id = ${user.id} FOR UPDATE`;
+      SELECT id FROM "User" WHERE id = ${user.id} FOR NO KEY UPDATE`;
     if (lockedUser.length === 0) return "user-deleted" as const;
 
     // Serialises with the members actions (task #10) for this household.

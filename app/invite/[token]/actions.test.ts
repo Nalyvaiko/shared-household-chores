@@ -99,7 +99,7 @@ describe("joinHousehold", () => {
       where: { token: TOKEN },
       select: { householdId: true },
     });
-    expect(rawQuery(0).sql).toMatch(/SELECT id FROM "User" WHERE id = \? FOR UPDATE/);
+    expect(rawQuery(0).sql).toMatch(/SELECT id FROM "User" WHERE id = \? FOR NO KEY UPDATE/);
     expect(rawQuery(0).values).toEqual(["user_1"]);
     expect(rawQuery(1).sql).toMatch(/SELECT id FROM "Household" WHERE id = \? FOR UPDATE/);
     expect(rawQuery(1).values).toEqual(["household_1"]);
