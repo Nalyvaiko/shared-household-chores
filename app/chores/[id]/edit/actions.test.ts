@@ -397,6 +397,51 @@ describe("updateChore", () => {
     expect(await save({ title: "" })).toMatchObject({ formError: CHORE_GONE_ERROR });
   });
 
+  it.each([
+    ["a NUL byte", "chore_1\u0000"],
+    ["over-long", "c".repeat(201)],
+  ])("answers a chore id with %s with the gone message without querying", async (_label, choreId) => {
+    setSession("admin");
+    expect(await save({ choreId })).toMatchObject({ formError: CHORE_GONE_ERROR });
+    expect(await save({ choreId, title: "" })).toMatchObject({ formError: CHORE_GONE_ERROR });
+    expect($transaction).not.toHaveBeenCalled();
+    expect(dbChoreFindFirst).not.toHaveBeenCalled();
+    expectNothingWritten();
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a NUL byte", "cat_kitchen\u0000"],
+    ["over-long", "c".repeat(201)],
+  ])("refuses a category id with %s with the gone-category message without looking it up", async (_label, categoryId) => {
+    setSession("admin");
+    for (const fields of [{ categoryId }, { categoryId, title: "" }]) {
+      const state = await save(fields);
+      expect(state.errors?.categoryId).toEqual([CHORE_CATEGORY_GONE_ERROR]);
+      expect(state.values.categoryId).toBe("");
+    }
+    expect(tx.category.findUnique).not.toHaveBeenCalled();
+    expect(dbCategoryFindUnique).not.toHaveBeenCalled();
+    expectNothingWritten();
+  });
+
+  it.each([
+    ["a NUL byte", "user_2\u0000"],
+    ["over-long", "u".repeat(201)],
+  ])("refuses an assignee id with %s with the gone-member message without looking it up", async (_label, badId) => {
+    setSession("admin");
+    for (const fields of [{ assigneeIds: ["user_3", badId] }, { assigneeIds: ["user_3", badId], title: "" }]) {
+      const state = await save(fields);
+      expect(state.errors?.assigneeIds).toEqual([CHORE_ASSIGNEE_GONE_ERROR]);
+      expect(state.values.assigneeIds).toEqual(["user_3"]);
+    }
+    const queried = [...tx.membership.findMany.mock.calls, ...dbMembershipFindMany.mock.calls].flatMap(
+      ([args]) => args.where.userId.in,
+    );
+    expect(queried).not.toContain(badId);
+    expectNothingWritten();
+  });
+
   it.each(["completed", "skipped"])("refuses a %s chore with the not-pending message", async (status) => {
     chore = storedChore({ status });
     expect(await save()).toMatchObject({ formError: CHORE_NOT_PENDING_ERROR });
@@ -569,6 +614,17 @@ describe("deleteChore", () => {
     expect(await remove("")).toEqual({ error: CHORE_GONE_ERROR });
     expectNothingWritten();
     // A revalidation would re-render the edit page as a 404 over the message.
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a NUL byte", "chore_1\u0000"],
+    ["over-long", "c".repeat(201)],
+  ])("answers a chore id with %s with the gone message without querying", async (_label, choreId) => {
+    setSession("admin");
+    expect(await remove(choreId)).toEqual({ error: CHORE_GONE_ERROR });
+    expect($transaction).not.toHaveBeenCalled();
+    expectNothingWritten();
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 

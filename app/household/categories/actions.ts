@@ -12,6 +12,7 @@ import {
 import { requireHousehold, type CurrentHousehold } from "@/lib/auth/guards";
 import { categoryNameSchema, sameCategoryName } from "@/lib/category/validation";
 import { db } from "@/lib/db";
+import { formId } from "@/lib/form-id";
 
 export type AddCategoryState = {
   /** What the user typed, so the form can keep it. Empty after a success. */
@@ -109,15 +110,18 @@ export async function deleteCategory(
 ): Promise<DeleteCategoryState> {
   const current = await requireHousehold();
   const householdId = current.household.id;
-  const categoryId = field(formData, "categoryId");
+  const categoryId = formId(formData, "categoryId");
+  // An id that cannot be a category's gets the unknown-category answer, unqueried.
+  if (categoryId === null) {
+    revalidatePath(CATEGORIES_PATH);
+    return { error: CATEGORY_GONE_ERROR };
+  }
 
   const outcome = await db.$transaction(async (tx) => {
     const caller = await lockAndReadCaller(tx, current);
     if (!caller) return "gone" as const;
 
-    const category = categoryId
-      ? await tx.category.findUnique({ where: { id: categoryId } })
-      : null;
+    const category = await tx.category.findUnique({ where: { id: categoryId } });
     // Another household's id gets the same answer as an unknown one.
     if (!category || category.householdId !== householdId) return "missing" as const;
     if (category.builtIn) return "built-in" as const;

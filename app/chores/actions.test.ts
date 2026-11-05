@@ -291,6 +291,8 @@ describe("completeChore", () => {
 
   it.each([
     ["an empty id", { choreId: "" }, true],
+    ["an id with a NUL byte", { choreId: "chore_1\u0000" }, true],
+    ["an over-long id", { choreId: "c".repeat(201) }, true],
     ["a missing id", {}, true],
     ["an unknown id", { choreId: "chore_unknown" }, false],
     ["another household's id", { choreId: "chore_other" }, false],
@@ -304,7 +306,8 @@ describe("completeChore", () => {
       status: "error",
       message: CHORE_GONE_ERROR,
     });
-    expect(lockQueries()).toHaveLength(skipsLock ? 1 : 2);
+    expect(lockQueries()).toHaveLength(skipsLock ? 0 : 2);
+    expect($transaction).toHaveBeenCalledTimes(skipsLock ? 0 : 1);
     if (!skipsLock) expect(tx.$queryRaw.mock.calls[1].slice(1)).toEqual([(fields as { choreId: string }).choreId, "household_1"]);
     expect(tx.chore.findUnique).not.toHaveBeenCalled();
     expectNothingWritten();
@@ -522,6 +525,8 @@ describe("skipChore", () => {
 
   it.each([
     ["an empty id", { choreId: "" }, true],
+    ["an id with a NUL byte", { choreId: "chore_1\u0000" }, true],
+    ["an over-long id", { choreId: "c".repeat(201) }, true],
     ["an unknown id", { choreId: "chore_unknown" }, false],
     ["another household's id", { choreId: "chore_other" }, false],
   ])("answers %s with the same no-longer-exists message", async (_label, fields, skipsLock) => {
@@ -533,7 +538,8 @@ describe("skipChore", () => {
       status: "error",
       message: CHORE_GONE_ERROR,
     });
-    expect(lockQueries()).toHaveLength(skipsLock ? 1 : 2);
+    expect(lockQueries()).toHaveLength(skipsLock ? 0 : 2);
+    expect($transaction).toHaveBeenCalledTimes(skipsLock ? 0 : 1);
     if (!skipsLock) expect(tx.$queryRaw.mock.calls[1].slice(1)).toEqual([fields.choreId, "household_1"]);
     expect(tx.chore.findUnique).not.toHaveBeenCalled();
     expectNothingWritten();
@@ -831,6 +837,8 @@ describe.each([
 
   it.each([
     ["an empty id", { choreId: "" }, true],
+    ["an id with a NUL byte", { choreId: "chore_1\u0000" }, true],
+    ["an over-long id", { choreId: "c".repeat(201) }, true],
     ["a missing id", {}, true],
     ["an unknown id", { choreId: "chore_unknown" }, false],
     ["another household's id", { choreId: "chore_other" }, false],
@@ -840,7 +848,8 @@ describe.each([
     );
 
     expect(await action()(idle, form(fields))).toEqual({ status: "error", message: CHORE_GONE_ERROR });
-    expect(lockQueries()).toHaveLength(skipsLock ? 1 : 2);
+    expect(lockQueries()).toHaveLength(skipsLock ? 0 : 2);
+    expect($transaction).toHaveBeenCalledTimes(skipsLock ? 0 : 1);
     expect(tx.chore.findUnique).not.toHaveBeenCalled();
     expectNoAssigneeWrites();
     expectListsRevalidated();
