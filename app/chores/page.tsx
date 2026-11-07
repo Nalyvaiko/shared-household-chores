@@ -6,6 +6,7 @@ import { ChoreFeedbackProvider } from "@/components/chore-feedback";
 import { ChoreList } from "@/components/chore-list";
 import { ClaimChoreButton } from "@/components/claim-chore-button";
 import { CompleteChoreButton } from "@/components/complete-chore-button";
+import { DropSearchParam } from "@/components/drop-search-param";
 import { ReleaseChoreButton } from "@/components/release-chore-button";
 import { SkipChoreForm } from "@/components/skip-chore-form";
 import { Button } from "@/components/ui/button";
@@ -147,12 +148,15 @@ export default async function ChoresPage({ searchParams }: PageProps<"/chores">)
         categories={categories.map(({ id, name }) => ({ id, name }))}
       />
       {/* Separate from the row actions' messages below. The filter form and
-          "Clear filters" don't carry `notice`, so it goes with them. */}
+          "Clear filters" don't carry `notice`, so it goes with them. Once
+          rendered, `notice` also leaves the address bar, so a reload doesn't
+          show it again (without JavaScript it stays until the next navigation). */}
       {notice ? (
         <p role="status" className="w-full rounded-md border px-4 py-3 text-sm">
           {notice}
         </p>
       ) : null}
+      {params.notice !== undefined ? <DropSearchParam name="notice" /> : null}
       {/* Unkeyed (unlike the form above) and outside the branches below, so
           the outcome message survives the re-render, the completed row
           leaving, and the list becoming empty. */}

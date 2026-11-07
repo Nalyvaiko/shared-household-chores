@@ -1091,4 +1091,13 @@ describe("/chores notice", () => {
     const clear = [...form.querySelectorAll("a")].find((a) => a.textContent === "Clear filters")!;
     expect(clear.getAttribute("href")).toBe("/chores");
   });
+
+  it("submits only the filter fields when other filters are set too", async () => {
+    const doc = parse(await html({ notice: "deleted", status: "all", overdue: "1" }));
+    const form = doc.querySelector('form[method="get"]')!;
+
+    const names = [...form.querySelectorAll("[name]")].map((field) => field.getAttribute("name"));
+    expect(names).toEqual(["status", "category", "overdue"]);
+    expect(form.getAttribute("action")).toBe("/chores");
+  });
 });
