@@ -9,7 +9,7 @@ import {
   CHORE_CATEGORY_GONE_ERROR,
 } from "@/app/chores/new/messages";
 import { requireHousehold, type CurrentHousehold } from "@/lib/auth/guards";
-import { categoryBelongs, nonMemberIds } from "@/lib/chore/references";
+import { categoryBelongs, hasMalformedReference, nonMemberIds } from "@/lib/chore/references";
 import {
   assignmentModeSchema,
   choreTitleSchema,
@@ -82,13 +82,16 @@ export async function createChore(
   const assigneeIds =
     assignmentMode.success && assignmentMode.data === "fixed" ? values.assigneeIds : [];
 
+  // A reference that cannot be an id is always refused, so like a plain
+  // validation error it is answered here, before any transaction.
   if (
     !title.success ||
     !dueAt.success ||
     !priority.success ||
     !effort.success ||
     !recurrence.success ||
-    !assignmentMode.success
+    !assignmentMode.success ||
+    hasMalformedReference(values.categoryId, assigneeIds)
   ) {
     const errors: ChoreErrors = {};
     if (!title.success) errors.title = title.error.issues.map((issue) => issue.message);

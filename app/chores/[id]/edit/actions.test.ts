@@ -442,6 +442,38 @@ describe("updateChore", () => {
     expectNothingWritten();
   });
 
+  it.each<[string, Record<string, string | string[]>, Record<string, string[]>]>([
+    ["a malformed category id", { categoryId: "cat_kitchen\u0000" }, { categoryId: [CHORE_CATEGORY_GONE_ERROR] }],
+    ["a malformed assignee id", { assigneeIds: ["user_3", "u".repeat(201)] }, { assigneeIds: [CHORE_ASSIGNEE_GONE_ERROR] }],
+  ])("refuses %s before opening a transaction, with the usual message", async (_label, fields, errors) => {
+    setSession("admin");
+    const state = await save(fields);
+
+    expect(state.errors).toEqual(errors);
+    expect($transaction).not.toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith("/chores/chore_1/edit");
+    expectNothingWritten();
+  });
+
+  it("answers a gone or no longer pending chore before a malformed category, without a transaction", async () => {
+    chore = null;
+    expect(await save({ categoryId: "cat_kitchen\u0000" })).toMatchObject({ formError: CHORE_GONE_ERROR });
+    chore = storedChore({ status: "completed" });
+    expect(await save({ categoryId: "cat_kitchen\u0000" })).toMatchObject({
+      formError: CHORE_NOT_PENDING_ERROR,
+    });
+    expect($transaction).not.toHaveBeenCalled();
+    expectNothingWritten();
+  });
+
+  it("saves under the lock when the only malformed ids are ticks the caller may not change", async () => {
+    // A member who didn't create the chore: the posted ticks are ignored.
+    await expectSaved({ title: "Renamed", assigneeIds: ["user_2\u0000"] });
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(updateData().title).toBe("Renamed");
+    expectNothingWrittenToAssignees();
+  });
+
   it.each(["completed", "skipped"])("refuses a %s chore with the not-pending message", async (status) => {
     chore = storedChore({ status });
     expect(await save()).toMatchObject({ formError: CHORE_NOT_PENDING_ERROR });
