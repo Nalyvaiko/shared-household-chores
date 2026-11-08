@@ -645,6 +645,42 @@ describe("createChore: refusals", () => {
     expectNothingSaved();
   });
 
+  it.each<[string, Record<string, string | string[]>, Record<string, string[]>, Partial<typeof validValues>]>([
+    [
+      "a malformed category id",
+      { categoryId: "cat_kitchen\u0000" },
+      { categoryId: [CHORE_CATEGORY_GONE_ERROR] },
+      { categoryId: "" },
+    ],
+    [
+      "a malformed assignee id next to a member",
+      { assigneeIds: ["user_2", "u".repeat(201)] },
+      { assigneeIds: [CHORE_ASSIGNEE_GONE_ERROR] },
+      { assigneeIds: ["user_2"] },
+    ],
+    [
+      "both",
+      { categoryId: " ", assigneeIds: ["user_2\u0000"] },
+      { categoryId: [CHORE_CATEGORY_GONE_ERROR], assigneeIds: [CHORE_ASSIGNEE_GONE_ERROR] },
+      { categoryId: "", assigneeIds: [] },
+    ],
+  ])("refuses %s before opening a transaction, with the usual messages", async (_label, fields, errors, echo) => {
+    const state = await createChore(initial, form(fields));
+
+    expect(state).toEqual({ values: { ...validValues, ...echo }, errors });
+    expect($transaction).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith("/chores/new");
+    expectNothingSaved();
+  });
+
+  it("still opens the transaction for a well-formed category and members", async () => {
+    await expect(
+      createChore(initial, form({ categoryId: "cat_kitchen", assigneeIds: ["user_2"] })),
+    ).rejects.toThrow("NEXT_REDIRECT /chores");
+    expect($transaction).toHaveBeenCalledTimes(1);
+  });
+
   it("redirects a caller removed mid-request to /household/new and saves nothing", async () => {
     tx.membership.findUnique.mockResolvedValue(null);
 

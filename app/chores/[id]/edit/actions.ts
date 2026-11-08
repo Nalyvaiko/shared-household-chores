@@ -19,7 +19,7 @@ import {
   type ChoreFormState,
   type ChoreFormValues,
 } from "@/lib/chore/form";
-import { categoryBelongs, nonMemberIds } from "@/lib/chore/references";
+import { categoryBelongs, hasMalformedReference, nonMemberIds } from "@/lib/chore/references";
 import { inHouseholdTransaction } from "@/lib/chore/transaction";
 import {
   assignmentModeSchema,
@@ -190,9 +190,13 @@ export async function updateChore(
   // An id that cannot be a chore's gets the unknown-chore answer, unqueried.
   if (choreId === null) return { values, formError: CHORE_GONE_ERROR };
 
-  if (hasFieldError(parsed)) {
+  // A reference that cannot be an id is answered here too, before any
+  // transaction: a malformed category is always refused, and so are malformed
+  // ticks from someone who may change the assignment.
+  if (hasFieldError(parsed) || hasMalformedReference(values.categoryId, values.assigneeIds)) {
     // Nothing will be written, so these reads take no lock. They still run,
-    // so every invalid field is reported at once.
+    // so every invalid field is reported at once, after a gone or no longer
+    // pending chore as under the lock.
     const stored = await db.chore.findFirst({
       where: { id: choreId, householdId },
       select: { createdById: true, dueAt: true, assignmentMode: true, status: true },
@@ -200,7 +204,11 @@ export async function updateChore(
     if (!stored) return { values, formError: CHORE_GONE_ERROR };
     if (stored.status !== "pending") return { values, formError: CHORE_NOT_PENDING_ERROR };
     const checked = await check(db, parsed, stored, current.membership, householdId);
-    return refuse(choreId, values, stored, checked);
+    // Only ignored ticks were malformed (the caller may not change the
+    // assignment): save under the lock as usual.
+    if (hasFieldError(parsed) || checked.refused) {
+      return refuse(choreId, values, stored, checked);
+    }
   }
 
   const outcome = await inHouseholdTransaction(householdId, userId, async (tx, caller) => {

@@ -41,3 +41,14 @@ export async function nonMemberIds(
   const members = new Set(rows.map((row) => row.userId));
   return userIds.filter((id) => !members.has(id));
 }
+
+/**
+ * Whether the posted category (when one is picked) or a picked member id
+ * cannot be an id at all. Such a reference is always answered as gone, so the
+ * actions can refuse it before opening a transaction.
+ */
+export function hasMalformedReference(categoryId: string, userIds: readonly string[]): boolean {
+  return (
+    (categoryId !== "" && !isPlausibleId(categoryId)) || userIds.some((id) => !isPlausibleId(id))
+  );
+}
