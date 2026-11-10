@@ -14,6 +14,11 @@ const stepIndex = (run: string) => {
 };
 
 describe("CI workflow", () => {
+  it("pins the runner image instead of following ubuntu-latest", () => {
+    expect(workflow).toContain("runs-on: ubuntu-24.04");
+    expect(workflow).not.toContain("ubuntu-latest");
+  });
+
   it("starts a Postgres 16 service with a health check", () => {
     expect(workflow).toMatch(/services:\s*\n\s*postgres:\s*\n\s*image: postgres:16/);
     expect(workflow).toContain("--health-cmd");
