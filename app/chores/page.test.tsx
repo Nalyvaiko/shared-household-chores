@@ -207,6 +207,8 @@ describe("/chores page", () => {
     const form = parse(markup).querySelector("form")!;
     expect(form.getAttribute("method")).toBe("get");
     expect(form.getAttribute("action")).toBe("/chores");
+    // The id the back-forward cache reset looks the form up by.
+    expect(form.id).toBe("chore-filters");
     expect(markup).toMatch(/<label[^>]*for="filter-status"[^>]*>Status<\/label>/);
     expect(markup).toMatch(/<label[^>]*for="filter-category"[^>]*>Category<\/label>/);
     const overdue = form.querySelector<HTMLInputElement>('input[name="overdue"]')!;

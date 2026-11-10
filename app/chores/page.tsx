@@ -8,6 +8,7 @@ import { ClaimChoreButton } from "@/components/claim-chore-button";
 import { CompleteChoreButton } from "@/components/complete-chore-button";
 import { DropSearchParam } from "@/components/drop-search-param";
 import { ReleaseChoreButton } from "@/components/release-chore-button";
+import { ResetFormOnRestore } from "@/components/reset-form-on-restore";
 import { SkipChoreForm } from "@/components/skip-chore-form";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,7 @@ function ChoreFilterForm({
 }) {
   return (
     <form
+      id="chore-filters"
       method="get"
       action="/chores"
       className="flex w-full flex-wrap items-end gap-4 rounded-md border px-4 py-3"
@@ -96,6 +98,9 @@ function ChoreFilterForm({
           Clear filters
         </Link>
       </div>
+      {/* A page restored from the back-forward cache keeps the controls as
+          they were left; its defaults are the filters in this URL. */}
+      <ResetFormOnRestore formId="chore-filters" />
     </form>
   );
 }
