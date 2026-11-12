@@ -62,6 +62,24 @@ describe("CI workflow", () => {
     }
   });
 
+  it("runs the Chromium end-to-end tests after the build", () => {
+    const build = stepIndex("npm run build");
+    const install = stepIndex("npx playwright install --with-deps chromium");
+    const e2e = stepIndex("npm run test:e2e");
+    expect(build).toBeLessThan(install);
+    expect(install).toBeLessThan(e2e);
+    expect(workflow).toContain("npx playwright install-deps chromium");
+    expect(workflow).toContain("path: ~/.cache/ms-playwright");
+  });
+
+  it("uploads the Playwright report only when the job fails", () => {
+    const e2e = stepIndex("npm run test:e2e");
+    const upload = stepIndex("actions/upload-artifact@v7");
+    expect(e2e).toBeLessThan(upload);
+    expect(workflow).toMatch(/if: failure\(\)\s*\n\s*uses: actions\/upload-artifact@v7/);
+    expect(workflow).toContain("playwright-report/");
+  });
+
   it("never runs the seed", () => {
     expect(workflow).not.toMatch(/seed/);
   });

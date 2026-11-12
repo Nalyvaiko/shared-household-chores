@@ -121,6 +121,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm start`         | Serve the production build                              |
 | `npm test`          | Run the Vitest suite once                               |
 | `npm run test:watch`| Run Vitest in watch mode                                |
+| `npm run test:e2e`  | Build, start on port 3100, and run the Playwright smoke tests (needs a migrated database) |
 | `npm run lint`      | Lint with ESLint                                        |
 | `npm run typecheck` | Generate route types and run `tsc --noEmit`             |
 | `npm run db:migrate`| Create and apply migrations in development              |
@@ -134,13 +135,26 @@ Tests use [Vitest](https://vitest.dev). Test files are named `*.test.ts` /
 `*.test.tsx` and can live in `tests/` or next to the code they cover. Run them
 with `npm test`. See [`_docs/testing.md`](_docs/testing.md) for conventions.
 
+End-to-end smoke tests use [Playwright](https://playwright.dev) (Chromium) and
+live in `e2e/`. They run against a production build and a real database, so
+start and migrate the Docker Postgres first:
+
+```bash
+docker compose up -d
+npx prisma migrate deploy
+npx playwright install chromium   # once per Playwright version
+npm run test:e2e                  # builds, serves on :3100, runs the specs
+```
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push and pull request. It starts a
 Postgres 16 service, applies the committed migrations (`prisma migrate deploy`),
 and fails if `prisma/schema.prisma` has changes with no migration
 (`prisma migrate diff --exit-code`). Then it runs lint, typecheck, tests, and
-`npm run build` (not `vercel-build`). The seed never runs in CI.
+`npm run build` (not `vercel-build`), then the Playwright end-to-end tests
+against that build (the report is uploaded as an artifact when they fail). The
+seed never runs in CI.
 
 ## Environment variables
 
