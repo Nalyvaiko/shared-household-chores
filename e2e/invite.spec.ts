@@ -28,7 +28,7 @@ test("a new user signs up through an invite link and joins as a member", async (
   await expect(invitee).toHaveURL(
     (url) => url.pathname === "/signin" && url.searchParams.get("callbackUrl") === invitePath,
   );
-  await invitee.getByRole("main").getByRole("link", { name: "Sign up" }).click();
+  await invitee.getByRole("link", { name: "Create an account" }).click();
   await expect(invitee).toHaveURL(
     (url) => url.pathname === "/signup" && url.searchParams.get("callbackUrl") === invitePath,
   );
