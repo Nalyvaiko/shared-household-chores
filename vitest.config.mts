@@ -10,6 +10,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     include: ["**/*.{test,spec}.{ts,tsx}"],
-    exclude: ["node_modules", ".next", "out", "build"],
+    // e2e/ holds the Playwright specs; `npm run test:e2e` runs them.
+    exclude: ["node_modules", ".next", "out", "build", "e2e/**"],
   },
 });
