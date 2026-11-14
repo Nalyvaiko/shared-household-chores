@@ -7,6 +7,7 @@ scaffolded at the repo root (TypeScript, ESLint, Vitest).
 
 - `_docs/plan.md` — scope, product decisions, fixed tech stack. Source of truth.
 - `_docs/process.md` — how to work: one issue at a time, acceptance criteria, commit often.
+- `_docs/team/README.md` — agent team: roles, handoffs, artifacts.
 - `_docs/tasks.md` — MVP backlog, one-to-one with the GitHub issues.
 - `_docs/testing.md` — test tooling (Vitest) and conventions.
 - `_docs/design.md` — UI conventions (components, row actions, feedback, forms, accessibility, narrow screens). Read before UI work.

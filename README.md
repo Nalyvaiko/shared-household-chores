@@ -236,7 +236,8 @@ mirrors the MVP backlog (#1–#21) plus the follow-ups filed along the way
 ### Workflow
 
 From [`_docs/process.md`](_docs/process.md) and the role guides in
-[`_docs/team/`](_docs/team/):
+[`_docs/team/`](_docs/team/). The team, its handoffs and artifacts are in
+[`_docs/team/README.md`](_docs/team/README.md).
 
 1. Work on **one issue at a time**, taken from the backlog.
 2. **PM** ([`pm.md`](_docs/team/pm.md)) grooms the issue into the template,
