@@ -51,6 +51,7 @@ Load only the docs the job needs.
 ## Commands
 
 - `npm install` — install dependencies (`postinstall` runs `prisma generate`)
+- `npm run dev:all` — one-command local run: starts the Compose Postgres (waits until healthy), `prisma migrate deploy`, seeds only if not seeded yet, then `next dev`; uses the `.env.example` defaults when there is no `.env`
 - `npm run dev` — dev server on <http://localhost:3000>
 - `npm run build` — production build
 - `npm test` — run the Vitest suite once (`npm run test:watch` for watch mode)

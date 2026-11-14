@@ -276,10 +276,43 @@ without a task issue.
 
 ## Getting started
 
+### Quick start
+
+With Node.js 24+, npm 11+ and Docker Desktop running:
+
+```bash
+npm install
+npm run dev:all
+```
+
+Then open <http://localhost:3000> and sign in as a seeded demo user (see
+[Seed demo data](#4-seed-demo-data)) or sign up for a new account.
+
+`npm run dev:all` ([`scripts/dev-all.mjs`](scripts/dev-all.mjs)) does every
+local step in order and stops at the first one that fails:
+
+1. starts the Postgres from [`docker-compose.yml`](docker-compose.yml) and waits
+   until its healthcheck passes (`docker compose up -d --wait`);
+2. applies the committed migrations (`prisma migrate deploy` — never resets or
+   drops data);
+3. seeds the demo data, only if the database has not been seeded yet;
+4. starts the dev server (`next dev`; extra arguments go to it, e.g.
+   `npm run dev:all -- --port 3001`).
+
+If there is no `.env`, it runs with the local defaults from `.env.example`
+(the Compose database, `AUTH_URL=http://localhost:3000`, `AUTH_TRUST_HOST=true`
+and a dev-only `AUTH_SECRET`) without writing a `.env`; with a `.env` it uses
+that. Variables set in your shell always win. Set `CHORES_DB_PORT` to publish
+Postgres on another host port and `COMPOSE_PROJECT_NAME` to run a separate
+database (its own container and volume). Running it again keeps your data.
+
+The manual steps below are still there when you want them.
+
 ### Requirements
 
 - Node.js 24+
 - npm 11+
+- Docker (for the local Postgres)
 
 ### Install
 
@@ -327,9 +360,12 @@ migrations). `AUTH_SECRET` and `AUTH_URL` are covered in
 A [`docker-compose.yml`](docker-compose.yml) with Postgres 16 is committed:
 
 ```bash
-docker compose up -d      # start (user/password/db all "chores", port 5432)
-docker compose down        # stop; add -v to also drop the data volume
+docker compose up -d --wait  # start, wait until healthy (user/password/db all "chores", port 5432)
+docker compose down          # stop; add -v to also drop the data volume
 ```
+
+The `db` service has a `pg_isready` healthcheck, and `CHORES_DB_PORT` changes its
+host port (default 5432).
 
 If you already run Postgres another way, point `DATABASE_URL` and `DIRECT_URL`
 at it instead (both the same connection string) and create an empty `chores`
@@ -359,8 +395,10 @@ npm run db:seed          # prisma db seed — built-in categories + a demo house
 This populates the database with the built-in category set and one demo
 household whose chores cover every state the app screens need (upcoming,
 overdue, completed, skipped, recurring, claim-mode, and fixed assignment). It is
-idempotent: re-running it changes nothing and exits 0. It is never run
-automatically — run it by hand after migrations when you want demo data.
+idempotent: re-running it changes nothing and exits 0. `npm run dev:all` runs it
+only on a database that has no demo data yet (`--skip-if-seeded`), so starting
+the app never puts demo rows you have changed back to their seeded values.
+Otherwise run it by hand after migrations when you want demo data.
 `npm run db:reset` also runs it once as part of recreating the database.
 
 The seed creates two demo users you can sign in as:
@@ -384,6 +422,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 
 | Command             | What it does                                            |
 | ------------------- | ------------------------------------------------------- |
+| `npm run dev:all`   | Start Postgres, apply migrations, seed if empty, then start the dev server — see [Quick start](#quick-start) |
 | `npm run dev`       | Start the Next.js dev server on <http://localhost:3000> |
 | `npm run build`     | Production build                                        |
 | `npm run vercel-build` | Apply migrations (`prisma migrate deploy`), then build — the Vercel build command |
@@ -405,7 +444,11 @@ Tests use [Vitest](https://vitest.dev). Test files are named `*.test.ts` /
 with `npm test`. See [`_docs/testing.md`](_docs/testing.md) for conventions.
 
 End-to-end smoke tests use [Playwright](https://playwright.dev) (Chromium) and
-live in `e2e/`. They run against a production build and a real database, so
+live in `e2e/`. They are how end-to-end behaviour is proven: in CI they drive
+the real app in a browser against a real, migrated PostgreSQL — sign up, create a
+household, create a chore and complete it; generate an invite and join through
+it. Every step goes through the app's Server Actions and is stored with Prisma in
+PostgreSQL, so data persists across requests and pages. They run against a production build and a real database, so
 start and migrate the Docker Postgres first:
 
 ```bash
