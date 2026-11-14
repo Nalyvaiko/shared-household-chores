@@ -135,7 +135,7 @@ against a real, migrated Postgres. Config: `playwright.config.ts`; specs live in
 Run locally against the Docker Postgres:
 
 ```bash
-docker compose up -d                # Postgres on localhost:5432
+docker compose up -d --wait db      # Postgres on localhost:5432
 npx prisma migrate deploy           # uses DATABASE_URL / DIRECT_URL from .env
 npx playwright install chromium     # once per Playwright version
 npm run test:e2e
@@ -143,6 +143,29 @@ npm run test:e2e
 
 In CI the job runs it after the Build step and uploads `playwright-report/` as an
 artifact when it fails.
+
+## Docker image check
+
+The Docker setup (`Dockerfile`, the `app` service in `docker-compose.yml`,
+`docker/entrypoint.mjs`) is covered twice:
+
+- **Unit:** `tests/docker.test.ts` asserts the wiring — base image, standalone
+  copy, non-root user, the `app` service's environment, port, `depends_on` and
+  healthcheck, and the entrypoint's steps (`migrate deploy`, then the seed with
+  `--skip-if-seeded`).
+- **CI:** the `docker` job in `.github/workflows/ci.yml` runs
+  `docker compose up -d --build --wait`, expects `GET /signin` to return 200
+  and the demo household to exist, prints the Compose logs on failure, and
+  always runs `docker compose down -v`.
+
+To check it by hand without touching your usual database, use a separate
+project and ports, then remove it:
+
+```bash
+COMPOSE_PROJECT_NAME=docker-check CHORES_DB_PORT=55442 APP_PORT=3142 docker compose up -d --build --wait
+curl -I http://localhost:3142/signin
+docker compose -p docker-check down -v
+```
 
 ## Scope for the MVP
 

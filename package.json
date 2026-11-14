@@ -8,6 +8,8 @@
     "build": "next build",
     "vercel-build": "prisma migrate deploy && next build",
     "start": "next start",
+    "docker:up": "docker compose up -d --build --wait",
+    "docker:down": "docker compose down",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
