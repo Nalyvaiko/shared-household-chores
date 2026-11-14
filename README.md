@@ -10,6 +10,7 @@ any other group.
 [Project docs](#project-docs) ·
 [Project management](#project-management) ·
 [Getting started](#getting-started) ·
+[Run with Docker](#run-with-docker) ·
 [Database](#database) ·
 [Scripts](#scripts) ·
 [Tests](#tests) ·
@@ -292,7 +293,7 @@ Then open <http://localhost:3000> and sign in as a seeded demo user (see
 local step in order and stops at the first one that fails:
 
 1. starts the Postgres from [`docker-compose.yml`](docker-compose.yml) and waits
-   until its healthcheck passes (`docker compose up -d --wait`);
+   until its healthcheck passes (`docker compose up -d --wait db`);
 2. applies the committed migrations (`prisma migrate deploy` — never resets or
    drops data);
 3. seeds the demo data, only if the database has not been seeded yet;
@@ -306,7 +307,9 @@ that. Variables set in your shell always win. Set `CHORES_DB_PORT` to publish
 Postgres on another host port and `COMPOSE_PROJECT_NAME` to run a separate
 database (its own container and volume). Running it again keeps your data.
 
-The manual steps below are still there when you want them.
+The manual steps below are still there when you want them. To run the
+production build and the database entirely in Docker instead, see
+[Run with Docker](#run-with-docker).
 
 ### Requirements
 
@@ -327,6 +330,63 @@ npm run dev
 ```
 
 Then open <http://localhost:3000>.
+
+## Run with Docker
+
+The whole system — PostgreSQL and the app's production build — runs in Docker
+Compose with one command. You need only Docker (no Node.js, no `.env`):
+
+```bash
+docker compose up -d --build --wait   # or: npm run docker:up
+```
+
+Then open <http://localhost:3000> and sign in as a demo user (below) or sign up.
+
+What it does:
+
+1. builds the app image from the [`Dockerfile`](Dockerfile) (Node 24 on Debian
+   slim, `npm ci`, `prisma generate`, `next build` with standalone output; the
+   server runs as the non-root `node` user);
+2. starts the `db` service (Postgres 16, data in the `chores-db` volume) and
+   waits until it is healthy;
+3. starts the `app` service, whose entrypoint
+   ([`docker/entrypoint.mjs`](docker/entrypoint.mjs)) applies the committed
+   migrations (`prisma migrate deploy`), seeds the demo data only if the
+   database has none yet (`--skip-if-seeded`), then starts the server on port
+   3000. If a step fails, the container stops with a message naming it;
+4. `--wait` returns once both services are healthy (the app's healthcheck asks
+   for `/signin`).
+
+Demo users from the seed:
+
+| Role   | Email               | Password           |
+| ------ | ------------------- | ------------------ |
+| Admin  | `admin@example.com` | `sparkle-otter-42` |
+| Member | `member@example.com`| `maple-badger-77`  |
+
+Stop, reset, logs:
+
+```bash
+docker compose down                # stop (or: npm run docker:down); data is kept
+docker compose down -v             # stop and delete the database volume
+docker compose logs -f app         # follow the app's logs
+```
+
+Restarting keeps your data and never re-seeds a database that already has the
+demo household.
+
+Configuration, all optional, read from your shell (`.env` is not needed —
+[`docker-compose.yml`](docker-compose.yml) sets everything the app needs):
+
+- `APP_PORT` — host port for the app (default 3000). `npm run dev` also uses
+  3000, so stop one or set `APP_PORT=3001` to run both. `AUTH_URL` follows it.
+- `CHORES_DB_PORT` — host port for Postgres (default 5432).
+- `AUTH_SECRET` — the Compose file has a public, local-only default; set your
+  own (e.g. `openssl rand -base64 33`) for anything beyond your machine.
+
+The app container uses the same `db` service (and volume) as
+`npm run dev:all`, so both see the same data. Use `COMPOSE_PROJECT_NAME` (or
+`docker compose -p NAME`) for a fully separate stack.
 
 ## Database
 
@@ -360,8 +420,8 @@ migrations). `AUTH_SECRET` and `AUTH_URL` are covered in
 A [`docker-compose.yml`](docker-compose.yml) with Postgres 16 is committed:
 
 ```bash
-docker compose up -d --wait  # start, wait until healthy (user/password/db all "chores", port 5432)
-docker compose down          # stop; add -v to also drop the data volume
+docker compose up -d --wait db  # start, wait until healthy (user/password/db all "chores", port 5432)
+docker compose down             # stop; add -v to also drop the data volume
 ```
 
 The `db` service has a `pg_isready` healthcheck, and `CHORES_DB_PORT` changes its
@@ -427,6 +487,8 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm run build`     | Production build                                        |
 | `npm run vercel-build` | Apply migrations (`prisma migrate deploy`), then build — the Vercel build command |
 | `npm start`         | Serve the production build                              |
+| `npm run docker:up` | Build and start Postgres + the app in Docker Compose, wait until healthy — see [Run with Docker](#run-with-docker) |
+| `npm run docker:down` | Stop the Compose stack (data is kept)                 |
 | `npm test`          | Run the unit tests once (Vitest; the database is mocked) |
 | `npm run test:unit` | Same as `npm test`                                      |
 | `npm run test:watch`| Run the unit tests in watch mode                        |
@@ -478,7 +540,7 @@ PostgreSQL, so data persists across requests and pages. They run against a produ
 them on their own, start and migrate the Docker Postgres first:
 
 ```bash
-docker compose up -d
+docker compose up -d --wait db
 npx prisma migrate deploy
 npx playwright install chromium   # once per Playwright version
 npm run test:e2e                  # builds, serves on :3100, runs the specs
@@ -492,7 +554,13 @@ and fails if `prisma/schema.prisma` has changes with no migration
 (`prisma migrate diff --exit-code`). Then it runs lint, typecheck, the unit tests, the
 integration tests (against the service database), and `npm run build` (not `vercel-build`), then the Playwright end-to-end tests
 against that build (the report is uploaded as an artifact when they fail). The
-seed never runs in CI.
+seed never runs in that job.
+
+A second job, `docker`, checks the containerized system: it runs
+`docker compose up -d --build --wait` (image build, migrations, seed, server),
+expects `GET /signin` to return 200 and the demo household to exist in the
+database, prints the Compose logs if anything fails, and removes the stack with
+`docker compose down -v`.
 
 ## Environment variables
 

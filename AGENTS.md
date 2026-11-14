@@ -52,6 +52,7 @@ Load only the docs the job needs.
 
 - `npm install` — install dependencies (`postinstall` runs `prisma generate`)
 - `npm run dev:all` — one-command local run: starts the Compose Postgres (waits until healthy), `prisma migrate deploy`, seeds only if not seeded yet, then `next dev`; uses the `.env.example` defaults when there is no `.env`
+- `npm run docker:up` — the whole system in Docker: `docker compose up -d --build --wait` builds the app image (`Dockerfile`, standalone output), starts `db` + `app`; the app entrypoint (`docker/entrypoint.mjs`) runs `prisma migrate deploy`, seeds only an empty database, then serves on <http://localhost:3000> (`APP_PORT` overrides; clashes with `npm run dev` on 3000). No `.env` needed. `npm run docker:down` stops it (`docker compose down -v` also deletes the data)
 - `npm run dev` — dev server on <http://localhost:3000>
 - `npm run build` — production build
 - `npm test` — run the Vitest unit suite once (alias `npm run test:unit`; `npm run test:watch` for watch mode)
@@ -66,7 +67,13 @@ Load only the docs the job needs.
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it applies
 the Prisma migrations to a PostgreSQL service, fails if `schema.prisma` has a change
 with no migration (`prisma migrate diff`), then runs lint, typecheck, unit tests, integration tests (on the service
-database), build, and the Playwright end-to-end tests.
+database), build, and the Playwright end-to-end tests. A separate `docker` job runs
+`docker compose up -d --build --wait`, checks `/signin` returns 200 and the demo
+household exists, then `docker compose down -v`.
+
+`next.config.ts` builds standalone output only when `NEXT_OUTPUT_STANDALONE=1`
+(set in the Dockerfile); `npm run build`, `npm start`, Vercel and Playwright use
+the default output.
 
 ## Next.js version
 

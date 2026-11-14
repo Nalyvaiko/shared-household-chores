@@ -1,0 +1,21 @@
+# Allow-list: only what the image build needs is sent to Docker. Everything
+# else (node_modules, .next, .env, git data, local tool folders) stays out; the
+# image installs from a clean `npm ci`.
+*
+!app/
+!components/
+!lib/
+!prisma/
+!public/
+!docker/
+!auth.ts
+!components.json
+!next.config.ts
+!package.json
+!package-lock.json
+!postcss.config.mjs
+!tsconfig.json
+
+# Tests are not part of the image.
+**/*.test.ts
+**/*.test.tsx

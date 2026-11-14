@@ -7,6 +7,14 @@ const workflow = readFileSync(
   "utf8",
 );
 
+// The `verify` job: from its key up to the `docker` job.
+const verifyJob = workflow.slice(
+  workflow.search(/^ {2}verify:/m),
+  workflow.search(/^ {2}docker:/m),
+);
+// The `docker` job: from its key to the end of the file.
+const dockerJob = workflow.slice(workflow.search(/^ {2}docker:/m));
+
 const stepIndex = (run: string) => {
   const index = workflow.indexOf(run);
   expect(index, `step running "${run}"`).toBeGreaterThan(-1);
@@ -92,7 +100,44 @@ describe("CI workflow", () => {
     expect(workflow).toContain("playwright-report/");
   });
 
-  it("never runs the seed", () => {
-    expect(workflow).not.toMatch(/seed/);
+  it("never runs the seed in the verify job", () => {
+    expect(verifyJob.length).toBeGreaterThan(0);
+    expect(verifyJob).not.toMatch(/seed/);
+  });
+});
+
+describe("CI docker job", () => {
+  const index = (text: string) => {
+    const at = dockerJob.indexOf(text);
+    expect(at, `docker job containing "${text}"`).toBeGreaterThan(-1);
+    return at;
+  };
+
+  it("is a separate job on the pinned runner", () => {
+    expect(workflow.search(/^ {2}docker:/m)).toBeGreaterThan(-1);
+    expect(dockerJob).toMatch(/^ {2}docker:\r?\n {4}runs-on: ubuntu-24\.04/);
+    index("actions/checkout@v7");
+  });
+
+  it("starts the whole stack with the single documented command", () => {
+    index("run: docker compose up -d --build --wait");
+  });
+
+  it("checks /signin and the seeded demo household after startup", () => {
+    const up = index("docker compose up -d --build --wait");
+    const signin = index("http://localhost:3000/signin");
+    const demo = index("id = 'demo-household'");
+    expect(up).toBeLessThan(signin);
+    expect(signin).toBeLessThan(demo);
+    index('test "$status" = "200"');
+    index("docker compose exec -T db psql");
+  });
+
+  it("prints the logs on failure and always removes the stack", () => {
+    const logs = index("docker compose logs");
+    const down = index("run: docker compose down -v");
+    expect(logs).toBeLessThan(down);
+    expect(dockerJob).toMatch(/if: failure\(\)\r?\n\s*run: \|[\s\S]*?docker compose logs/);
+    expect(dockerJob).toMatch(/if: always\(\)\r?\n\s*run: docker compose down -v/);
   });
 });
