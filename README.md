@@ -427,9 +427,12 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm run build`     | Production build                                        |
 | `npm run vercel-build` | Apply migrations (`prisma migrate deploy`), then build — the Vercel build command |
 | `npm start`         | Serve the production build                              |
-| `npm test`          | Run the Vitest suite once                               |
-| `npm run test:watch`| Run Vitest in watch mode                                |
+| `npm test`          | Run the unit tests once (Vitest; the database is mocked) |
+| `npm run test:unit` | Same as `npm test`                                      |
+| `npm run test:watch`| Run the unit tests in watch mode                        |
+| `npm run test:integration` | Run the integration tests against a real, migrated `chores_test` database |
 | `npm run test:e2e`  | Build, start on port 3100, and run the Playwright smoke tests (needs a migrated database) |
+| `npm run test:all`  | Start the Compose Postgres, create and migrate `chores_test`, then run unit, integration and end-to-end tests — see [Tests](#tests) |
 | `npm run lint`      | Lint with ESLint                                        |
 | `npm run typecheck` | Generate route types and run `tsc --noEmit`             |
 | `npm run db:migrate`| Create and apply migrations in development              |
@@ -439,17 +442,40 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 
 ## Tests
 
-Tests use [Vitest](https://vitest.dev). Test files are named `*.test.ts` /
-`*.test.tsx` and can live in `tests/` or next to the code they cover. Run them
-with `npm test`. See [`_docs/testing.md`](_docs/testing.md) for conventions.
+Three layers; [`_docs/testing.md`](_docs/testing.md) has what each proves and
+the conventions.
+
+- **Unit** ([Vitest](https://vitest.dev), `*.test.ts` / `*.test.tsx` in
+  `tests/` or next to the code): logic with the session and database mocked.
+  `npm test` (or `npm run test:unit`).
+- **Integration** (Vitest, `integration/*.int.test.ts`): the real Server
+  Actions and Prisma client against a real PostgreSQL database named
+  `chores_test` — roll-over, cascades, and the locks under parallel requests.
+  `npm run test:integration`.
+- **End-to-end** (Playwright, `e2e/`): the production build in Chromium.
+  `npm run test:e2e`.
+
+Run all three with one command (Docker must be running):
+
+```bash
+npx playwright install chromium   # once per Playwright version
+npm run test:all
+```
+
+[`scripts/test-all.mjs`](scripts/test-all.mjs) starts the Compose Postgres and
+waits until it is healthy, creates the `chores_test` database on it if missing,
+applies the migrations to it, then runs unit → integration → end-to-end, all
+against `chores_test`, and stops at the first failure with its exit code. Your
+development database (`chores`) is not touched and `.env` is never written.
+`CHORES_DB_PORT` and `COMPOSE_PROJECT_NAME` work as for `npm run dev:all`.
 
 End-to-end smoke tests use [Playwright](https://playwright.dev) (Chromium) and
 live in `e2e/`. They are how end-to-end behaviour is proven: in CI they drive
 the real app in a browser against a real, migrated PostgreSQL — sign up, create a
 household, create a chore and complete it; generate an invite and join through
 it. Every step goes through the app's Server Actions and is stored with Prisma in
-PostgreSQL, so data persists across requests and pages. They run against a production build and a real database, so
-start and migrate the Docker Postgres first:
+PostgreSQL, so data persists across requests and pages. They run against a production build and a real database; to run
+them on their own, start and migrate the Docker Postgres first:
 
 ```bash
 docker compose up -d
@@ -463,8 +489,8 @@ npm run test:e2e                  # builds, serves on :3100, runs the specs
 `.github/workflows/ci.yml` runs on every push and pull request. It starts a
 Postgres 16 service, applies the committed migrations (`prisma migrate deploy`),
 and fails if `prisma/schema.prisma` has changes with no migration
-(`prisma migrate diff --exit-code`). Then it runs lint, typecheck, tests, and
-`npm run build` (not `vercel-build`), then the Playwright end-to-end tests
+(`prisma migrate diff --exit-code`). Then it runs lint, typecheck, the unit tests, the
+integration tests (against the service database), and `npm run build` (not `vercel-build`), then the Playwright end-to-end tests
 against that build (the report is uploaded as an artifact when they fail). The
 seed never runs in CI.
 

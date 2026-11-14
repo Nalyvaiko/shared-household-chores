@@ -1,8 +1,20 @@
 # Testing
 
+## Three layers
+
+| Layer | Where | Runs against | What it proves | Command |
+| --- | --- | --- | --- | --- |
+| Unit | `*.test.ts(x)` next to the code, `tests/` | Mocked session and database (jsdom) | Logic and branches: validation, date math, every refusal an action can give, which queries it makes | `npm test` / `npm run test:unit` |
+| Integration | `integration/*.int.test.ts` | The real Server Actions and Prisma client on a real Postgres (`chores_test`) | What mocks cannot: rows actually written, cascades and `SET NULL`, and that the row locks keep parallel requests consistent | `npm run test:integration` |
+| End-to-end | `e2e/*.spec.ts` | The production build in Chromium, real Postgres | The main user paths work through the UI | `npm run test:e2e` |
+
+`npm run test:all` runs all three with one command — see
+[One command](#one-command-test-all).
+
 ## Tooling
 
-- [Vitest](https://vitest.dev) is the test runner. Config: `vitest.config.mts`.
+- [Vitest](https://vitest.dev) is the test runner. Config: `vitest.config.mts`
+  (unit) and `vitest.integration.config.mts` (integration).
 - Environment is `jsdom`, so component and DOM tests work without extra setup.
 - The `@/*` import alias resolves in tests (Vite `resolve.tsconfigPaths`).
 
@@ -13,10 +25,10 @@
   `tests/`.
 - Import test helpers explicitly: `import { describe, it, expect } from "vitest"`.
   Globals are not enabled.
-- Keep tests deterministic and offline. Mock the session and database rather than
-  hitting a real Postgres instance (see the auth-helper tasks in
-  [`tasks.md`](tasks.md)). Only the end-to-end smoke tests below use a real
-  database.
+- Keep unit tests deterministic and offline. Mock the session and database
+  rather than hitting a real Postgres instance (see the auth-helper tasks in
+  [`tasks.md`](tasks.md)). Only the integration and end-to-end tests below use
+  a real database.
 - Server-only modules (`lib/auth/guards.ts`) start with `import "server-only"`,
   which throws outside a Next.js server build. `vitest.setup.ts` (listed in
   `setupFiles`) mocks it for every test file with
@@ -29,9 +41,79 @@
 
 ## Commands
 
-- `npm test` — run once (used by CI).
-- `npm run test:watch` — watch mode for local development.
+- `npm test` (alias `npm run test:unit`) — unit tests once (used by CI).
+- `npm run test:watch` — unit tests in watch mode for local development.
+- `npm run test:integration` — integration tests (see below).
 - `npm run test:e2e` — Playwright end-to-end smoke tests (see below).
+- `npm run test:all` — every layer, with the database set up for you (see below).
+
+## Integration tests
+
+Vitest in the `node` environment, config `vitest.integration.config.mts`,
+files `integration/**/*.int.test.ts` (excluded from the unit run). They call the
+real Server Actions and `lib/` functions with the real Prisma client.
+
+- **Database.** `TEST_DATABASE_URL`, default
+  `postgresql://chores:chores@localhost:${CHORES_DB_PORT:-5432}/chores_test`.
+  The config sets `DATABASE_URL` / `DIRECT_URL` to it before anything loads, so
+  `.env` is never used. Every test truncates all tables first, so the config
+  refuses a database whose name does not end in `_test` (outside CI).
+- **Mocks** (`integration/setup.ts`), only for what has no server in a test:
+  `@/auth` (the session), `next/navigation` `redirect()` (throws
+  `NEXT_REDIRECT <url>`, like Next), `next/cache` revalidation, `server-only`.
+- **Callers.** `asUser(userId, () => action(...))` (`integration/session.ts`)
+  sets the session per async call chain, so one test can fire parallel
+  requests as different users with `Promise.all`.
+- **Fixtures.** `integration/helpers.ts` creates users, households, members and
+  chores directly with Prisma; `redirectOf()` returns a redirect's target.
+  Each test seeds only what it needs.
+- **What belongs here:** behaviour that depends on Postgres — roll-over rows,
+  cascades, `SET NULL`, unique constraints, and races the locks must win
+  (repeat a race a few rounds so a missing lock fails reliably). Branch logic
+  stays in unit tests.
+- Files run one at a time (one shared database); tests within a file run in
+  order.
+
+Run on their own against the Docker Postgres:
+
+```bash
+docker compose up -d --wait db
+# once: create chores_test and migrate it (npm run test:all does both)
+docker compose exec -T db psql -U chores -d chores -c "CREATE DATABASE chores_test"
+DATABASE_URL=postgresql://chores:chores@localhost:5432/chores_test \
+DIRECT_URL=postgresql://chores:chores@localhost:5432/chores_test \
+  npx prisma migrate deploy
+npm run test:integration
+```
+
+In CI the step runs after the unit tests against the job's Postgres service
+(`TEST_DATABASE_URL` = the service database, which is thrown away with the
+job).
+
+## One command (`test:all`)
+
+`npm run test:all` ([`scripts/test-all.mjs`](../scripts/test-all.mjs), plain
+Node, no dependencies) needs only Docker running and the Playwright browser
+installed (`npx playwright install chromium`, once per version):
+
+1. `docker compose up -d --wait db` — starts the Compose Postgres and waits until
+   it is healthy (the same step as `npm run dev:all`). If Docker is not
+   reachable it says so in one line and exits 1.
+2. Creates `chores_test` on that server if it is missing. The development
+   database (`chores`) is never reset, seeded or dropped.
+3. `prisma migrate deploy` against `chores_test`.
+4. Unit → integration → end-to-end, every step with `DATABASE_URL` /
+   `DIRECT_URL` pointed at `chores_test` (so Playwright's server uses it too).
+
+The first failing step stops the run with its exit code; a summary with each
+step's duration is printed at the end. `.env` is never written.
+`CHORES_DB_PORT` and `COMPOSE_PROJECT_NAME` work as for `npm run dev:all`, e.g.
+a throwaway stack next to your usual one:
+
+```bash
+COMPOSE_PROJECT_NAME=chores-tests CHORES_DB_PORT=55432 npm run test:all
+docker compose -p chores-tests down -v   # remove it afterwards
+```
 
 ## End-to-end smoke tests
 
@@ -64,5 +146,6 @@ artifact when it fails.
 ## Scope for the MVP
 
 Add unit tests for anything with real logic: authorization helpers, recurrence
-roll-over date math, invite-token validation, and Server Action validation. UI
-that is pure markup does not need a test.
+roll-over date math, invite-token validation, and Server Action validation. Add
+an integration test when the behaviour lives in the database: a new lock, a
+cascade, or a constraint. UI that is pure markup does not need a test.
