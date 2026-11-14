@@ -232,6 +232,16 @@ Acceptance criteria:
 - The success result and the existing error cases are unchanged, and no error case deletes a `ChoreAssignee` row.
 - If the `ChoreAssignee` delete fails, the whole removal rolls back.
 
+## 24. CI: run Prisma migrations against a Postgres service
+Goal: CI runs Prisma migrations against a real PostgreSQL service so schema drift and broken migrations fail the build.
+Description: Task #1 set up CI and task #3 asks for `prisma migrate deploy` to succeed against an empty database, but nothing ran that in CI. Extend the existing GitHub Actions workflow (keep the package cache) with a PostgreSQL service container, apply the migrations to it, and fail the build when the schema has a change with no migration. Running the seed in CI and deploy-time migrations on Vercel (#21) are out of scope.
+Acceptance criteria:
+- The CI workflow starts a PostgreSQL service container and sets `DATABASE_URL` (and `DIRECT_URL` if used) to point at it.
+- CI runs `prisma migrate deploy` (or `prisma migrate reset --force`) against that database on every push and pull request.
+- CI runs `prisma migrate diff` (or `migrate status`) so an un-migrated schema change fails the build.
+- `prisma generate` runs in CI before typecheck so `@prisma/client` types are present.
+- The job is green on `main`.
+
 ## 25. Admin household settings page (rename household)
 Goal: An admin can view and change household settings (at minimum, the household name).
 Acceptance criteria:
@@ -248,3 +258,12 @@ Acceptance criteria:
 - An admin cannot change their own role through this control.
 - Non-admins do not see the control and the action is blocked server-side (`requireAdmin`).
 - The change is reflected in the member list immediately.
+
+## 27. Reconcile who may complete a chore (plan vs task #16)
+Goal: Resolve the contradiction over who may mark a chore complete.
+Description: `plan.md` (Roles & Permissions) said a member may "Edit, complete, or skip any chore in the household", while task #16 said a user who is not an assignee (or claimant) cannot complete a chore. Decision: only assignees complete a chore, meaning a user with a `ChoreAssignee` row for it (for a claim chore, the current claimant). An admin who is not assigned cannot complete it. Skipping stays open to any member (#18). `plan.md` and task #16 were updated to match with #16. How multi-assignee completion works (one assignee completes the whole chore) is unchanged.
+Acceptance criteria:
+- A single rule is chosen: only assignees/claimants complete a chore.
+- `plan.md` and task #16 state the same rule.
+- Task #16's authorization check stays assignee-only.
+- Skipping stays "any member" (#18).
