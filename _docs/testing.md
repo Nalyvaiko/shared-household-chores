@@ -98,7 +98,8 @@ installed (`npx playwright install chromium`, once per version):
 
 1. `docker compose up -d --wait db` — starts the Compose Postgres and waits until
    it is healthy (the same step as `npm run dev:all`). If Docker is not
-   reachable it says so in one line and exits 1.
+   reachable it says so in one line and exits 1; the same for a missing
+   Playwright Chromium, before any test runs.
 2. Creates `chores_test` on that server if it is missing. The development
    database (`chores`) is never reset, seeded or dropped.
 3. `prisma migrate deploy` against `chores_test`.

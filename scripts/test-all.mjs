@@ -24,12 +24,16 @@
  * Plain Node, no dependencies, works on Windows, macOS and Linux.
  */
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { dockerIsReachable, dockerNotRunning, runStep } from "./dev-all.mjs";
 
 export const TEST_DATABASE = "chores_test";
+
+export const PLAYWRIGHT_BROWSER_MISSING =
+  "Playwright's Chromium for this version is not installed. Run `npx playwright install chromium` and run `npm run test:all` again.";
 
 /**
  * The connection string for the test database on the Compose server.
@@ -129,6 +133,14 @@ async function main() {
 
   if (!dockerIsReachable(env)) {
     console.error(`[test:all] ${dockerNotRunning("npm run test:all")}`);
+    process.exit(1);
+  }
+
+  // Checked up front, so a missing browser fails in seconds, not after the
+  // unit and integration runs.
+  const { chromium } = await import("@playwright/test");
+  if (!existsSync(chromium.executablePath())) {
+    console.error(`[test:all] ${PLAYWRIGHT_BROWSER_MISSING}`);
     process.exit(1);
   }
 
