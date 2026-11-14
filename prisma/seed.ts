@@ -92,6 +92,20 @@ type ChoreSeed = {
 };
 
 async function main() {
+  // `npm run dev:all` passes --skip-if-seeded so that starting the app never
+  // rewrites demo rows the user has since changed (the upserts below would put
+  // them back to their seeded values). `npm run db:seed` always runs in full.
+  if (process.argv.includes("--skip-if-seeded")) {
+    const seeded = await prisma.household.findUnique({
+      where: { id: HOUSEHOLD_ID },
+      select: { id: true },
+    });
+    if (seeded) {
+      console.log("Demo data already present; skipping the seed.");
+      return;
+    }
+  }
+
   // 1. Demo household — fixed id, no natural key.
   const household = await prisma.household.upsert({
     where: { id: HOUSEHOLD_ID },

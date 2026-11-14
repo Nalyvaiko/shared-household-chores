@@ -1,21 +1,30 @@
-# Local PostgreSQL for development. Start it with:
+# Local PostgreSQL for development. `npm run dev:all` starts it for you, or by
+# hand:
 #
-#   docker compose up -d
+#   docker compose up -d --wait
 #
-# Credentials and port match DATABASE_URL in .env.example.
+# Credentials and port match DATABASE_URL in .env.example. CHORES_DB_PORT
+# overrides the host port (default 5432).
 
 services:
   db:
     image: postgres:16
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "${CHORES_DB_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: chores
       POSTGRES_PASSWORD: chores
       POSTGRES_DB: chores
     volumes:
       - chores-db:/var/lib/postgresql/data
+    # Healthy once Postgres accepts TCP connections. Checking over TCP (not the
+    # socket) skips the temporary server the image runs during first-time init.
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "chores", "-d", "chores"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
 volumes:
   chores-db:
