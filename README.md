@@ -3,22 +3,229 @@
 Web app for managing shared household chores for couples, families, roommates, or
 any other group.
 
-Built with Next.js (App Router) + Server Actions, PostgreSQL + Prisma, Auth.js v5,
-and Tailwind + shadcn/ui. Scope and product decisions live in
-[`_docs/plan.md`](_docs/plan.md); the MVP backlog is [`_docs/tasks.md`](_docs/tasks.md).
+**Contents:** [The problem](#the-problem) ·
+[What it does](#what-it-does) ·
+[How it works](#how-it-works) ·
+[Tech stack](#tech-stack) ·
+[Project docs](#project-docs) ·
+[Getting started](#getting-started) ·
+[Database](#database) ·
+[Scripts](#scripts) ·
+[Tests](#tests) ·
+[CI](#ci) ·
+[Environment variables](#environment-variables) ·
+[Deploy to Vercel](#deploy-to-vercel)
 
-## Requirements
+## The problem
+
+When several people share a home, chores get tracked in heads, group chats and
+sticky notes. Nobody is sure who agreed to take the bins out, whether the
+bathroom was cleaned this week, or why the plants were not watered. Recurring
+jobs fall through the cracks, and the same people end up doing most of the work.
+
+This app gives a household — a couple, a family, flatmates, or any other group —
+one shared list of chores. Each chore says what needs doing, by when, and who is
+on it; everyone sees the same list, and each person gets a short "My chores" view
+of what is theirs. Completing or skipping a chore is recorded (who, when, and why
+it was skipped), and recurring chores come back on their own.
+
+## What it does
+
+- **Accounts** — sign up and sign in with email and password.
+- **One household per user** — create a household (you become its admin) or join
+  one through an invite link.
+- **Invite links** — an admin generates a link and shares it any way they like;
+  the app sends no email.
+- **Members and roles** — two fixed roles, admin and member. Admins can remove
+  members and promote or demote them.
+- **Categories** — every household starts with built-in categories (Kitchen,
+  Bathroom, Cleaning, Laundry, Outdoor, Pets, Admin); members can add and delete
+  custom ones.
+- **Chores** — a title plus an optional due date and time, priority (Low /
+  Medium / High / Urgent), effort (Small / Medium / Large), optional category,
+  recurrence (none / daily / weekly / monthly), and assignment: **fixed** (one or
+  more named people) or **claim** (anyone can pick it up).
+- **My chores** (`/`) — your pending chores: the ones you are assigned to or
+  have claimed, earliest due first.
+- **Household chores** (`/chores`) — every chore in the household, filtered by
+  status (Pending by default, Completed, Skipped, All), **Overdue only**, and
+  category (including "No category").
+- **Chore actions** — complete, skip with a reason, claim, release, edit, and
+  delete.
+- **Household settings** — admins can rename the household.
+
+## How it works
+
+The rules below describe what the app enforces on the server, not only what the
+UI shows.
+
+### Chore lifecycle
+
+- A chore is **Pending** until it is **Completed** or **Skipped**. Both are final:
+  a completed or skipped chore cannot be edited, reopened, completed or skipped
+  again (an admin can still delete it).
+- **Overdue** is not a stored status. A chore is overdue when it is Pending and
+  its due date and time is in the past; it then shows an Overdue badge and
+  appears under the Overdue only filter. Chores without a due date are never
+  overdue.
+- **Completing** records who completed it and when. On a chore with several
+  assignees, one person completing it completes it for everyone.
+- **Skipping** requires a reason (up to 500 characters) and records who skipped
+  it and when. The app keeps these records but has no history screen for them.
+- **Recurring chores** roll over only on completion: completing one creates
+  exactly one new Pending occurrence, in the same database transaction.
+  - It copies the title, priority, effort, category, recurrence and assignment
+    mode. A fixed chore keeps its assignees; a claim chore starts unclaimed.
+  - The next due date is the previous one plus 1 day (daily), 7 days (weekly) or
+    1 calendar month (monthly), keeping the time of day. Monthly dates are
+    clamped to the end of a shorter month (Jan 31 → Feb 28 → Mar 28). A chore
+    with no due date is scheduled from the moment it was completed.
+  - The maths is done in UTC, so a time entered in local time can appear an
+    hour off after a daylight-saving change.
+  - There is no back-fill: completing a long-overdue daily chore creates one
+    next occurrence, which may itself already be overdue.
+  - **Skipping a recurring chore ends the series**: no next occurrence is
+    created. Deleting one does not create one either.
+  - Changing a chore's recurrence while editing takes effect at its next
+    completion.
+- Double submits and simultaneous actions are safe: two people completing (or
+  completing and skipping) the same chore at once produce exactly one outcome,
+  and the other person is told the chore was already completed or skipped.
+
+### Assignment
+
+- **Fixed** — specific members are assigned. Only they can complete it. If
+  nobody is assigned, the chore shows as **Unassigned** and nobody can complete it
+  until someone is assigned.
+- **Claim** — the chore starts **Unclaimed**. Any member (admins included) can
+  claim it; there is at most one claimant at a time. Only the claimant can
+  complete or release it; releasing makes it Unclaimed again.
+- Only the chore's creator or an admin can change its assignment mode or
+  assignees. Other members can still edit its other details.
+- Removing a member unassigns them from the household's chores: a fixed chore
+  left with nobody shows as Unassigned, a claim they held becomes Unclaimed.
+  Their completion and skip records and the chores they created stay.
+
+### Roles and permissions
+
+Everyone in a household sees all of its chores, members and categories.
+
+| Action                                              | Member | Admin |
+| --------------------------------------------------- | :----: | :---: |
+| View all chores, members and categories             | ✓      | ✓     |
+| Create a chore                                      | ✓      | ✓     |
+| Edit a pending chore's details (title, due date, priority, effort, category, recurrence) | ✓ | ✓ |
+| Change a chore's assignment (mode and assignees)    | Own chores only | ✓ |
+| Complete a chore                                    | Assignee or claimant only | Assignee or claimant only |
+| Skip a pending chore (with a reason)                | ✓      | ✓     |
+| Claim an unclaimed claim chore                      | ✓      | ✓     |
+| Release a claim                                     | Claimant only | Claimant only |
+| Delete a chore (any status)                         | —      | ✓     |
+| Add or delete custom categories                     | ✓      | ✓     |
+| Generate or regenerate the invite link              | —      | ✓     |
+| Remove a member                                     | —      | ✓     |
+| Change a member's role                              | —      | ✓     |
+| Rename the household                                | —      | ✓     |
+
+"Own chores" means chores you created. Admins get no exception to the completion
+rule: an admin who is not assigned (or has not claimed) cannot complete a chore.
+
+Safety rules:
+
+- You cannot remove yourself or change your own role.
+- A household always keeps at least one admin: the last admin cannot be removed
+  or demoted.
+- Built-in categories cannot be deleted. Deleting a custom category leaves its
+  chores with no category. Category names are unique per household, ignoring
+  case.
+
+### Invites
+
+- A household has at most **one active invite link**. It is valid for **7 days**.
+- Generating a new link immediately expires the previous one.
+- A link can be used **once**: the first person to join with it uses it up.
+- Opening a link requires signing in (or signing up, then coming back to the
+  link). The invite page only shows the household's name; nothing happens until
+  the visitor presses **Join**, so link previews cannot use it up.
+- New members join as **member**. Someone who already belongs to a household
+  cannot join another one.
+
+### Dates and times
+
+- Due dates are optional, entered in your browser's local time, stored in UTC,
+  and shown in each viewer's local time. They must fall between the years 2000
+  and 2099.
+- Lists are ordered by due date, earliest first; chores without one come last.
+
+### Out of scope for the MVP
+
+Deliberately left out (see [`_docs/plan.md`](_docs/plan.md) for why and how each
+could come back):
+
+- Notifications of any kind (push, email, overdue or assignment reminders), and
+  email invites
+- Password reset
+- Belonging to more than one household, or switching between households
+- Rotating assignment
+- Custom roles, configurable permissions or chore visibility
+- Comments, photos/attachments and subtasks
+- Completion history UI, statistics, leaderboards, reporting and gamification
+- Calendar view
+
+### Where the app refines the plan
+
+[`_docs/plan.md`](_docs/plan.md) is the source of truth for scope. Where it
+leaves room, the app makes these choices:
+
+- **Completing is limited to assignees and the current claimant**, admins
+  included (#27; `plan.md` was updated to match).
+- **Editing is for pending chores only.** The plan says members can "edit or skip
+  any chore"; in the app, completed and skipped chores are read-only, and only
+  an admin can delete them.
+- **Assignment changes are creator or admin only**, applying the plan's "who
+  assigns a chore" rule to edits as well as creation.
+- **Admins can delete chores in any status**, Pending, Completed or Skipped.
+- **Invite links** are single use, expire after 7 days, and only one is active per
+  household at a time.
+- **Auth** uses Auth.js Credentials with bcrypt (the plan's other option, Clerk,
+  is not used), so password reset stays deferred.
+
+## Tech stack
+
+- [Next.js](https://nextjs.org) 16 (App Router), Server Actions for all
+  mutations
+- PostgreSQL with [Prisma](https://www.prisma.io) 6
+- [Auth.js](https://authjs.dev) v5 Credentials provider + bcrypt
+- Tailwind CSS + [shadcn/ui](https://ui.shadcn.com)
+- Vitest and Playwright for tests
+- Deployed on Vercel with hosted Postgres (Neon, Supabase or Railway)
+- No message queue, no Redis, no transactional email
+
+## Project docs
+
+- [`_docs/plan.md`](_docs/plan.md) — scope, product decisions and the fixed tech
+  stack (source of truth)
+- [`_docs/process.md`](_docs/process.md) — how work is done: one issue at a time,
+  acceptance criteria
+- [`_docs/tasks.md`](_docs/tasks.md) — the MVP backlog, one-to-one with the
+  GitHub issues
+- [`_docs/testing.md`](_docs/testing.md) — test tooling and conventions
+- [`_docs/design.md`](_docs/design.md) — UI rules
+
+## Getting started
+
+### Requirements
 
 - Node.js 24+
 - npm 11+
 
-## Install
+### Install
 
 ```bash
 npm install
 ```
 
-## Run the dev server
+### Run the dev server
 
 ```bash
 npm run dev
@@ -28,9 +235,9 @@ Then open <http://localhost:3000>.
 
 ## Database
 
-The app uses PostgreSQL through [Prisma](https://www.prisma.io). There are no
-domain models yet; this is just the connection wiring plus an empty initial
-migration.
+The app uses PostgreSQL through [Prisma](https://www.prisma.io). The schema is
+in [`prisma/schema.prisma`](prisma/schema.prisma) and the committed migrations
+are in `prisma/migrations/`.
 
 ### 1. Configure `DATABASE_URL` and `DIRECT_URL`
 
@@ -94,7 +301,7 @@ idempotent: re-running it changes nothing and exits 0. It is never run
 automatically — run it by hand after migrations when you want demo data.
 `npm run db:reset` also runs it once as part of recreating the database.
 
-The seed creates two demo users you can sign in as once auth is wired up:
+The seed creates two demo users you can sign in as:
 
 | Role   | Email               | Password           |
 | ------ | ------------------- | ------------------ |
