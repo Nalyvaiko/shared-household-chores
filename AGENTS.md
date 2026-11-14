@@ -1,16 +1,34 @@
 # shared-household-chores
 
 Web app for managing shared household chores. Next.js App Router project
-scaffolded at the repo root (TypeScript, ESLint, Vitest).
+scaffolded at the repo root (TypeScript, ESLint, Vitest, Playwright).
 
 ## Docs — read when relevant
 
+- `README.md` — product overview, local setup, environment variables, deploy runbook, project management.
 - `_docs/plan.md` — scope, product decisions, fixed tech stack. Source of truth.
 - `_docs/process.md` — how to work: one issue at a time, acceptance criteria, commit often.
 - `_docs/team/README.md` — agent team: roles, handoffs, artifacts.
+- `_docs/team/pm.md` — PM role: grooming issues, acceptance criteria, scope calls.
+- `_docs/team/software-engineer.md` — Software Engineer role: implementing an issue, checks, PRs.
+- `_docs/team/qa-engineer.md` — QA Engineer role: verifying an issue against its criteria.
 - `_docs/tasks.md` — MVP backlog, one-to-one with the GitHub issues.
-- `_docs/testing.md` — test tooling (Vitest) and conventions.
+- `_docs/task-template.md` — the four-section GitHub issue template.
+- `_docs/testing.md` — test tooling (Vitest, Playwright) and conventions.
 - `_docs/design.md` — UI conventions (components, row actions, feedback, forms, accessibility, narrow screens). Read before UI work.
+
+## Read by task
+
+Load only the docs the job needs.
+
+| Job | Read |
+| --- | --- |
+| Planning or scoping | `_docs/plan.md` |
+| Grooming an issue | `_docs/team/pm.md`, `_docs/task-template.md`, `_docs/tasks.md` |
+| Implementing an issue | `_docs/team/software-engineer.md`, `_docs/testing.md` (+ `_docs/design.md` for UI), the Next.js version note below |
+| Verifying an issue | `_docs/team/qa-engineer.md`, the issue's acceptance criteria |
+| Process and handoffs | `_docs/process.md`, `_docs/team/README.md` |
+| Setup, deploy, env vars | `README.md` |
 
 ## Rules
 
@@ -23,23 +41,29 @@ scaffolded at the repo root (TypeScript, ESLint, Vitest).
 ## Stack (fixed in `_docs/plan.md`)
 
 - Next.js (App Router), Server Actions for all mutations
-- PostgreSQL + Prisma
+- PostgreSQL + Prisma, pinned to `^6.19.3` (`prisma` and `@prisma/client`); do not upgrade to Prisma 7
 - Auth.js v5 Credentials + bcrypt
 - Tailwind CSS + shadcn/ui
+- Vitest for unit tests, Playwright for end-to-end tests
 - Vercel
 - No message queue, no Redis, no transactional email in the MVP
 
 ## Commands
 
-- `npm install` — install dependencies
+- `npm install` — install dependencies (`postinstall` runs `prisma generate`)
 - `npm run dev` — dev server on <http://localhost:3000>
 - `npm run build` — production build
 - `npm test` — run the Vitest suite once (`npm run test:watch` for watch mode)
+- `npm run test:e2e` — Playwright end-to-end tests
 - `npm run lint` — ESLint
 - `npm run typecheck` — `next typegen` then `tsc --noEmit`
+- `npm run db:migrate` / `db:reset` / `db:seed` / `db:studio` — `prisma migrate dev`, `prisma migrate reset`, seed, Prisma Studio
+- `npm run vercel-build` — used by Vercel: `prisma migrate deploy` then `next build`
 
-CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build on every push
-and pull request.
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: it applies
+the Prisma migrations to a PostgreSQL service, fails if `schema.prisma` has a change
+with no migration (`prisma migrate diff`), then runs lint, typecheck, test, build,
+and the Playwright end-to-end tests.
 
 ## Next.js version
 
