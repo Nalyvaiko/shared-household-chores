@@ -8,6 +8,7 @@ any other group.
 [How it works](#how-it-works) ·
 [Tech stack](#tech-stack) ·
 [Project docs](#project-docs) ·
+[Project management](#project-management) ·
 [Getting started](#getting-started) ·
 [Database](#database) ·
 [Scripts](#scripts) ·
@@ -211,6 +212,66 @@ leaves room, the app makes these choices:
   GitHub issues
 - [`_docs/testing.md`](_docs/testing.md) — test tooling and conventions
 - [`_docs/design.md`](_docs/design.md) — UI rules
+
+## Project management
+
+### Specification
+
+[`_docs/plan.md`](_docs/plan.md) is the source of truth: scope, product
+decisions and the fixed tech stack. Tasks, code and the rules in
+[How it works](#how-it-works) follow it.
+
+### Task tracker
+
+Tasks live in the public GitHub Issues:
+[open issues](https://github.com/Nalyvaiko/shared-household-chores/issues) ·
+[all issues, including closed](https://github.com/Nalyvaiko/shared-household-chores/issues?q=is%3Aissue).
+
+Each task issue follows [`_docs/task-template.md`](_docs/task-template.md):
+**Goal**, **Acceptance criteria** (checkboxes), **Out of scope** (with links to
+follow-up issues) and **Constraints**. [`_docs/tasks.md`](_docs/tasks.md)
+mirrors the MVP backlog (#1–#21) plus the follow-ups filed along the way
+(#23–#27).
+
+### Workflow
+
+From [`_docs/process.md`](_docs/process.md) and the role guides in
+[`_docs/team/`](_docs/team/):
+
+1. Work on **one issue at a time**, taken from the backlog.
+2. **PM** ([`pm.md`](_docs/team/pm.md)) grooms the issue into the template,
+   makes every acceptance criterion checkable, and files follow-up issues for
+   anything moved out of scope.
+3. **Engineer** ([`software-engineer.md`](_docs/team/software-engineer.md))
+   implements it on a `feat/<n>-…` branch against the acceptance criteria,
+   writes tests, and posts a summary comment on the issue. The Engineer does
+   not close the issue.
+4. **QA** ([`qa-engineer.md`](_docs/team/qa-engineer.md)) checks every
+   criterion against the running code, runs the tests, and posts a verdict
+   comment starting `## QA: PASS` or `## QA: FAIL`, with a verdict for each
+   criterion. QA reports problems but does not fix them.
+5. On **FAIL** the issue goes back to the Engineer with the QA comment as
+   input, then to QA again.
+6. On **PASS** the issue is closed with its criteria ticked. Its pull request
+   says `Resolves #<n>`.
+
+### Where to see it
+
+- [Issue #16 — Complete a chore](https://github.com/Nalyvaiko/shared-household-chores/issues/16):
+  the groomed Goal / Acceptance criteria / Out of scope / Constraints with every
+  criterion ticked, the Engineer's summary comment, and a `## QA: PASS` comment
+  with a verdict for each criterion. Resolved by
+  [PR #43](https://github.com/Nalyvaiko/shared-household-chores/pull/43).
+- [Issue #15 — Chore list views](https://github.com/Nalyvaiko/shared-household-chores/issues/15):
+  a full cycle of Engineer summary → `## QA: FAIL` → Engineer fix comment →
+  `## QA: PASS`. The fix landed in
+  [PR #42](https://github.com/Nalyvaiko/shared-household-chores/pull/42)
+  (`Resolves #15`).
+- [Merged pull requests](https://github.com/Nalyvaiko/shared-household-chores/pulls?q=is%3Apr+is%3Amerged):
+  each task PR from #22 to #52 names the issue it resolves.
+
+Later small improvements (PRs #53 onward) were made directly as pull requests,
+without a task issue.
 
 ## Getting started
 
