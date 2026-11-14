@@ -7,7 +7,7 @@ Roles
 The team, with inputs and outputs per role, is in _docs/team/README.md.
 
 - Maintainer - the human owner. Makes product decisions, approves criterion
-  amendments, merges PRs and closes issues
+  amendments, opens and merges PRs and closes issues
 - PM - grooms a task before anyone implements it, follows _docs/team/pm.md
 - Engineer - implements one groomed task, follows _docs/team/software-engineer.md
 - QA - checks the result against the acceptance criteria, follows _docs/team/qa-engineer.md
@@ -56,7 +56,9 @@ Conventions
 - One issue per branch, `feat/<n>-<slug>` from `main`
 - Never commit to or push `main`. Check the current branch before every
   commit; `main` can move while PRs are merged
-- One PR per issue, with `Resolves #<n>`. CI must be green
+- The engineer pushes the branch; CI must be green
+- One PR per issue, with `Resolves #<n>`, opened by the maintainer, or by
+  the engineer when the maintainer asks
 - Commits use the maintainer's git identity, with no extra trailers
 - Follow-up work goes to new issues filed by the maintainer, listed under
   Out of scope

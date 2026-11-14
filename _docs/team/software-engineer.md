@@ -16,8 +16,9 @@ Definition of done:
 
 - Every acceptance criterion in the issue is implemented
 - Tests are written for the new behaviour, and the whole suite passes
-- The work is committed and the branch is pushed
-- The PR says `Resolves #<n>` and its CI run is green
+- The work is committed, the branch is pushed and its CI run is green
+- The PR is opened by the maintainer, or by you when the maintainer
+  asks; it says `Resolves #<n>`
 - The issue is still open, with a comment saying what you did and
   which checks you ran
 
