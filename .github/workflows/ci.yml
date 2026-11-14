@@ -62,6 +62,14 @@ jobs:
       - name: Test
         run: npm test
 
+      # The real Server Actions and Prisma client against the migrated
+      # Postgres service. The suite truncates every table; the service
+      # database is thrown away with the job, so it is used directly.
+      - name: Integration tests
+        run: npm run test:integration
+        env:
+          TEST_DATABASE_URL: ${{ env.DATABASE_URL }}
+
       - name: Build
         run: npm run build
 
