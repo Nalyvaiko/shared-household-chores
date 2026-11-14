@@ -97,17 +97,24 @@ export function buildSteps({ root, nodePath, nextArgs = [] }) {
   ];
 }
 
-export const DOCKER_NOT_RUNNING =
-  "Docker is not reachable. Start Docker Desktop (or the Docker daemon) and run `npm run dev:all` again.";
+/** The one-line message for an unreachable Docker, naming the command to re-run. */
+export function dockerNotRunning(command) {
+  return `Docker is not reachable. Start Docker Desktop (or the Docker daemon) and run \`${command}\` again.`;
+}
+
+export const DOCKER_NOT_RUNNING = dockerNotRunning("npm run dev:all");
 
 /** True when the Docker CLI is installed and its daemon answers. */
-function dockerIsReachable(env) {
+export function dockerIsReachable(env) {
   const result = spawnSync("docker", ["info"], { stdio: "ignore", env });
   return !result.error && result.status === 0;
 }
 
-/** Run one step with inherited stdio; resolve with its exit code. */
-function runStep(step, { cwd, env }) {
+/**
+ * Run one step with inherited stdio; resolve with its exit code. `label`
+ * prefixes the error line when the command cannot start.
+ */
+export function runStep(step, { cwd, env, label = "dev:all" }) {
   return new Promise((resolve) => {
     const child = spawn(step.command, step.args, { cwd, env, stdio: "inherit" });
     // Ctrl+C reaches the child directly (same process group); keep this
@@ -121,7 +128,7 @@ function runStep(step, { cwd, env }) {
       resolve(code);
     };
     child.on("error", (error) => {
-      console.error(`[dev:all] ${step.name}: ${error.message}`);
+      console.error(`[${label}] ${step.name}: ${error.message}`);
       done(1);
     });
     child.on("exit", (code, signal) => done(code ?? (signal ? 1 : 0)));

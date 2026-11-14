@@ -54,8 +54,10 @@ Load only the docs the job needs.
 - `npm run dev:all` — one-command local run: starts the Compose Postgres (waits until healthy), `prisma migrate deploy`, seeds only if not seeded yet, then `next dev`; uses the `.env.example` defaults when there is no `.env`
 - `npm run dev` — dev server on <http://localhost:3000>
 - `npm run build` — production build
-- `npm test` — run the Vitest suite once (`npm run test:watch` for watch mode)
+- `npm test` — run the Vitest unit suite once (alias `npm run test:unit`; `npm run test:watch` for watch mode)
+- `npm run test:integration` — Vitest integration tests: real Server Actions + Prisma against the `chores_test` database (never the dev DB)
 - `npm run test:e2e` — Playwright end-to-end tests
+- `npm run test:all` — every layer with one command: starts the Compose Postgres, creates and migrates `chores_test`, then unit → integration → e2e against it; stops at the first failure
 - `npm run lint` — ESLint
 - `npm run typecheck` — `next typegen` then `tsc --noEmit`
 - `npm run db:migrate` / `db:reset` / `db:seed` / `db:studio` — `prisma migrate dev`, `prisma migrate reset`, seed, Prisma Studio
@@ -63,8 +65,8 @@ Load only the docs the job needs.
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it applies
 the Prisma migrations to a PostgreSQL service, fails if `schema.prisma` has a change
-with no migration (`prisma migrate diff`), then runs lint, typecheck, test, build,
-and the Playwright end-to-end tests.
+with no migration (`prisma migrate diff`), then runs lint, typecheck, unit tests, integration tests (on the service
+database), build, and the Playwright end-to-end tests.
 
 ## Next.js version
 

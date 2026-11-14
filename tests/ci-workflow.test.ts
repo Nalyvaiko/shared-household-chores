@@ -62,6 +62,18 @@ describe("CI workflow", () => {
     }
   });
 
+  it("runs the integration tests against the service after the unit tests", () => {
+    const deploy = stepIndex("npx prisma migrate deploy");
+    const unit = workflow.search(/run: npm test\r?$/m);
+    expect(unit, "the unit test step").toBeGreaterThan(-1);
+    const integration = stepIndex("npm run test:integration");
+    const build = stepIndex("npm run build");
+    expect(deploy).toBeLessThan(unit);
+    expect(unit).toBeLessThan(integration);
+    expect(integration).toBeLessThan(build);
+    expect(workflow).toContain("TEST_DATABASE_URL: ${{ env.DATABASE_URL }}");
+  });
+
   it("runs the Chromium end-to-end tests after the build", () => {
     const build = stepIndex("npm run build");
     const install = stepIndex("npx playwright install --with-deps chromium");
