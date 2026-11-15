@@ -37,6 +37,16 @@ describe("deployment configuration", () => {
     }
   });
 
+  it("lets Vercel deploy only main from Git", () => {
+    const vercel = JSON.parse(read("vercel.json")) as {
+      git?: { deploymentEnabled?: unknown };
+    };
+    // Minimatch: "**" also matches branch names with "/" (feat/…), and a
+    // branch matching both rules deploys when either is true, so main still
+    // deploys to production.
+    expect(vercel.git?.deploymentEnabled).toEqual({ main: true, "**": false });
+  });
+
   it("documents every deploy variable in .env.example and the README", () => {
     const envExample = read(".env.example");
     const readme = read("README.md");
