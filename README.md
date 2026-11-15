@@ -15,14 +15,16 @@ any other group.
 [Database](#database) ·
 [Scripts](#scripts) ·
 [Tests](#tests) ·
-[CI](#ci) ·
+[CI/CD](#cicd) ·
 [Environment variables](#environment-variables) ·
 [Deploy to Vercel](#deploy-to-vercel)
 
 ## Live demo
 
 Live demo: <https://shared-household-chores.vercel.app> — hosted on Vercel Hobby
-with a free Neon Postgres database; it deploys automatically from `main`.
+with a free Neon Postgres database; it is updated by the manual
+[production deploy](#cicd). Every merge to `main` goes to the dev environment
+first.
 
 The demo data is not seeded in production, so sign up with any email and
 password (it does not have to be real — no email is sent), create a household,
@@ -562,7 +564,91 @@ npx playwright install chromium   # once per Playwright version
 npm run test:e2e                  # builds, serves on :3100, runs the specs
 ```
 
-## CI
+## CI/CD
+
+```text
+push / pull request ──► CI (ci.yml: lint, typecheck, unit, integration, build, e2e, docker)
+
+merge to main ──► CI ──(green)──► Deploy to dev (deploy-dev.yml)
+                                    vercel pull/build/deploy (Preview env → dev DB)
+                                    alias → dev URL ──► smoke tests (Playwright)
+
+Actions → "Deploy to production" → Run workflow (ref, default main)
+   ──► check: commit is on main and CI passed on it
+   ──► approval (production environment reviewer)
+   ──► vercel pull/build --prod/deploy --prod (Production env → prod DB)
+   ──► smoke tests against production
+```
+
+| Environment | URL | Deployed by | Vercel settings (database) |
+| ----------- | --- | ----------- | -------------------------- |
+| `development` | <https://shared-household-chores-dev.vercel.app> | [`deploy-dev.yml`](.github/workflows/deploy-dev.yml), automatically after CI passes on `main` | Preview environment variables (Neon `dev` branch) |
+| `production` | <https://shared-household-chores.vercel.app> | [`deploy-production.yml`](.github/workflows/deploy-production.yml), by hand, after approval | Production environment variables (Neon main branch) |
+
+Vercel no longer deploys from Git pushes: [`vercel.json`](vercel.json) sets
+`git.deploymentEnabled` to `false`, and GitHub Actions deploys with the Vercel
+CLI instead (`vercel pull`, `vercel build`, `vercel deploy --prebuilt`), as in
+Vercel's [GitHub Actions guide](https://vercel.com/kb/guide/how-can-i-use-github-actions-with-vercel).
+`vercel build` runs `npm run vercel-build` on the runner, so each deploy applies
+the committed migrations (`prisma migrate deploy`) to **its own environment's
+database** before `next build`. Neither workflow seeds. A dev deploy is a Vercel
+preview deployment pointed at the fixed dev URL with `vercel alias set`; a
+production deploy (`--prod`) gets the production domain. Each environment has
+its own concurrency group, so deploys never overlap and are never cancelled
+mid-migration. Both fail in the first step, naming the missing secret, until
+the setup below is done.
+
+### Run a production deploy
+
+1. **Actions → Deploy to production → Run workflow**. Keep "Use workflow from"
+   on `main`; set `ref` to a commit SHA or tag on `main` to deploy (or roll back
+   to) an older commit, or leave `main`.
+2. The `check` job stops the run if that commit is not on `main` or has no
+   green CI run.
+3. The run then waits on the `production` environment: open it and
+   **Review deployments → Approve and deploy**.
+4. It builds, deploys, and runs the smoke tests against production. They only
+   create their own `e2e-…@example.com` users and households.
+
+### One-time setup (maintainer)
+
+GitHub environments `development` and `production` exist already (Settings →
+Environments): both accept deployments only from `main`, and `production`
+requires approval by the repository owner (`Nalyvaiko`).
+
+1. **Vercel token and IDs.** Create a token at
+   <https://vercel.com/account/tokens>. Find the IDs in the Vercel project's
+   **Settings → General** (Project ID; the team/owner ID under the account's
+   **Settings → General**), or run `npx vercel link` and read
+   `.vercel/project.json` (`orgId`, `projectId`). In GitHub, **Settings →
+   Secrets and variables → Actions → New repository secret**: `VERCEL_TOKEN`,
+   `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
+2. **Dev database.** In Neon, create a branch named `dev` from the production
+   branch (or empty). In Vercel, **Settings → Environment Variables**, add for
+   **Preview** only: `DATABASE_URL` (the `dev` branch's pooled connection
+   string), `DATABASE_URL_UNPOOLED` (its direct string) and a new
+   `AUTH_SECRET` (not the production one). Keep Neon's Production variables as
+   they are.
+3. **Config, not Secret.** `vercel pull` writes the variables to the runner for
+   `vercel build`; a Vercel variable of type *Secret* (formerly *Sensitive*) is
+   decryptable only inside Vercel's own builds
+   ([docs](https://vercel.com/docs/environment-variables/sensitive-environment-variables)).
+   If a build fails with `Missing required environment variable(s)` although
+   the variable is set, recreate it as **Config** for that environment.
+4. **Dev URL access.** Vercel's Standard Deployment Protection (on by default)
+   puts preview deployments, and so the dev URL, behind Vercel login. For the
+   smoke tests either turn it off (**Settings → Deployment Protection**) or,
+   in the same place, create a **Protection Bypass for Automation** secret
+   ([docs](https://vercel.com/docs/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation))
+   and add it as the GitHub secret `VERCEL_AUTOMATION_BYPASS_SECRET`; the
+   smoke tests then send it as the `x-vercel-protection-bypass` header.
+5. Re-run the latest **Deploy to dev** run (or merge to `main`), then run
+   **Deploy to production** once to check the production path.
+
+Until steps 1–2 are done, merges to `main` deploy nowhere: **Deploy to dev**
+fails at its first step, and production changes only through a manual run.
+
+### CI
 
 `.github/workflows/ci.yml` runs on every push and pull request. It starts a
 Postgres 16 service, applies the committed migrations (`prisma migrate deploy`),
@@ -617,7 +703,9 @@ hand is `AUTH_SECRET`.
 
 **How the build works.** On install, `postinstall` runs `prisma generate`.
 Vercel's Next.js preset then runs `npm run vercel-build` when that script exists
-(otherwise `npm run build`). `vercel-build` runs
+(otherwise `npm run build`) — in Vercel's own builds and in `vercel build` on
+the GitHub Actions runner alike (see [CI/CD](#cicd); Git pushes no longer
+trigger Vercel builds). `vercel-build` runs
 [`scripts/vercel-build.mjs`](scripts/vercel-build.mjs), which:
 
 1. maps the Neon integration's variables to the names Prisma reads
@@ -658,27 +746,23 @@ region close to the app's functions (Vercel's default is Washington, D.C.,
 custom environment variable prefix: the build looks for the default names
 (`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_*`).
 
-Connect it to **Production**, and to **Preview** only with Neon's database
-branch per preview deployment turned on. Every build runs
-`prisma migrate deploy`, so a preview build sharing the production database
-would migrate production from an unmerged branch. Without preview branching,
-leave Preview unconnected.
+Connect it to **Production** only. The **Preview** environment is the dev
+environment and points at a separate Neon `dev` branch that you set by hand
+([CI/CD one-time setup](#one-time-setup-maintainer), step 2). Every build runs
+`prisma migrate deploy`, so Preview must never share the production database.
 
-**Preview deployments are off.** [`vercel.json`](vercel.json) sets
-`git.deploymentEnabled` to `{ "main": true, "**": false }`, so Vercel deploys
-only `main` (production); every other branch is tested by CI against a real
-PostgreSQL instead of failing a preview build at the missing-variable check.
-To turn previews on later, enable Neon's database branch per preview
-deployment, connect Neon and `AUTH_SECRET` to **Preview**, then remove the
-`"**"` rule (Vercel matches branches with minimatch, where `*` stops at `/`, so
-`"**"` is what covers `feat/…` branches).
+**Git pushes do not deploy.** [`vercel.json`](vercel.json) sets
+`git.deploymentEnabled` to `false` for every branch; GitHub Actions deploys
+instead — `main` to dev after CI passes, production by hand
+(see [CI/CD](#cicd)). Other branches are tested by CI only.
 
-### 3. Redeploy
+### 3. Deploy
 
-**Deployments → … → Redeploy** (or push to `main`). The build log shows
-`DATABASE_URL from DATABASE_URL`, `DIRECT_URL from DATABASE_URL_UNPOOLED`, then
-`prisma migrate deploy` applying the migrations, then `next build`. Nothing
-else is needed for migrations.
+Do the [CI/CD one-time setup](#one-time-setup-maintainer), then run
+**Actions → Deploy to production** (or **Deployments → … → Redeploy** in
+Vercel). The build log shows `DATABASE_URL from DATABASE_URL`,
+`DIRECT_URL from DATABASE_URL_UNPOOLED`, then `prisma migrate deploy` applying
+the migrations, then `next build`. Nothing else is needed for migrations.
 
 ### 4. Optionally seed the demo household once
 

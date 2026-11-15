@@ -64,6 +64,8 @@ Conventions
   Out of scope
 - Small improvements outside the backlog may go straight to a PR (as #53
   onward did)
+- A merge to `main` deploys to dev automatically once CI passes; production
+  deploys only by a manual, approved "Deploy to production" run (README, CI/CD)
 
 Environment
 

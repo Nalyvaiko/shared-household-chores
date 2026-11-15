@@ -63,7 +63,7 @@ Load only the docs the job needs.
 - `npm run lint` — ESLint
 - `npm run typecheck` — `next typegen` then `tsc --noEmit`
 - `npm run db:migrate` / `db:reset` / `db:seed` / `db:studio` — `prisma migrate dev`, `prisma migrate reset`, seed, Prisma Studio
-- `npm run vercel-build` — used by Vercel (`scripts/vercel-build.mjs`): maps the Neon integration's env names (`DATABASE_URL_UNPOOLED` → `DIRECT_URL`, legacy `POSTGRES_*`), fails on missing `DATABASE_URL` / `DIRECT_URL` / `AUTH_SECRET`, then `prisma migrate deploy` and `next build`; never seeds
+- `npm run vercel-build` — used by `vercel build` (`scripts/vercel-build.mjs`): maps the Neon integration's env names (`DATABASE_URL_UNPOOLED` → `DIRECT_URL`, legacy `POSTGRES_*`), fails on missing `DATABASE_URL` / `DIRECT_URL` / `AUTH_SECRET`, then `prisma migrate deploy` and `next build`; never seeds
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it applies
 the Prisma migrations to a PostgreSQL service, fails if `schema.prisma` has a change
@@ -71,6 +71,13 @@ with no migration (`prisma migrate diff`), then runs lint, typecheck, unit tests
 database), build, and the Playwright end-to-end tests. A separate `docker` job runs
 `docker compose up -d --build --wait`, checks `/signin` returns 200 and the demo
 household exists, then `docker compose down -v`.
+
+CD: Vercel Git deployments are off (`vercel.json`). `.github/workflows/deploy-dev.yml`
+deploys `main` to dev (Vercel Preview env, alias `shared-household-chores-dev.vercel.app`)
+after CI passes on it; `.github/workflows/deploy-production.yml` is
+`workflow_dispatch` only and waits for approval in the `production` environment.
+Both run `vercel pull` / `vercel build` / `vercel deploy --prebuilt`, then
+`npm run test:e2e:remote`; secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
 
 `next.config.ts` builds standalone output only when `NEXT_OUTPUT_STANDALONE=1`
 (set in the Dockerfile); `npm run build`, `npm start`, Vercel and Playwright use
