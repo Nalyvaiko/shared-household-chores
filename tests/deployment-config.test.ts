@@ -24,9 +24,9 @@ describe("deployment configuration", () => {
   });
 
   it("applies migrations before next build in the Vercel build only", () => {
-    expect(pkg.scripts["vercel-build"]).toBe(
-      "prisma migrate deploy && next build",
-    );
+    // scripts/vercel-build.mjs: `prisma migrate deploy`, then `next build`
+    // (its steps are covered in tests/vercel-build.test.ts).
+    expect(pkg.scripts["vercel-build"]).toBe("node scripts/vercel-build.mjs");
     // CI migrates in its own step, so `npm run build` must not migrate.
     expect(pkg.scripts.build).toBe("next build");
   });
