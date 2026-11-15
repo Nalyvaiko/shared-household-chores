@@ -2,8 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 // End-to-end smoke tests: a production build of the app against a real,
 // migrated Postgres (DATABASE_URL / DIRECT_URL from the environment or `.env`).
+//
+// With E2E_BASE_URL set (`npm run test:e2e:remote`), the same specs run against
+// that already deployed app instead and no local server is started.
 const PORT = 3100;
-const baseURL = `http://localhost:${PORT}`;
+const remoteBaseURL = process.env.E2E_BASE_URL;
+const baseURL = remoteBaseURL || `http://localhost:${PORT}`;
 const isCI = Boolean(process.env.CI);
 
 // Only pass the database URLs through when they are set; otherwise
@@ -25,20 +29,22 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    // CI builds in an earlier step; locally build first so the server always
-    // runs the current code.
-    command: isCI
-      ? `npm run start -- --port ${PORT}`
-      : `npm run build && npm run start -- --port ${PORT}`,
-    url: baseURL,
-    reuseExistingServer: false,
-    timeout: 300_000,
-    env: {
-      ...databaseEnv,
-      AUTH_SECRET: process.env.AUTH_SECRET ?? "e2e-only-secret-not-used-anywhere-else",
-      AUTH_URL: baseURL,
-      AUTH_TRUST_HOST: "true",
-    },
-  },
+  webServer: remoteBaseURL
+    ? undefined
+    : {
+        // CI builds in an earlier step; locally build first so the server
+        // always runs the current code.
+        command: isCI
+          ? `npm run start -- --port ${PORT}`
+          : `npm run build && npm run start -- --port ${PORT}`,
+        url: baseURL,
+        reuseExistingServer: false,
+        timeout: 300_000,
+        env: {
+          ...databaseEnv,
+          AUTH_SECRET: process.env.AUTH_SECRET ?? "e2e-only-secret-not-used-anywhere-else",
+          AUTH_URL: baseURL,
+          AUTH_TRUST_HOST: "true",
+        },
+      },
 });
