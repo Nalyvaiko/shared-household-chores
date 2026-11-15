@@ -76,6 +76,23 @@ describe("lib/db", () => {
     expect((globalThis as GlobalWithPrisma).prisma).toBe(db);
   });
 
+  it("connects through the resolved runtime URL (legacy Neon names too)", async () => {
+    const construct = vi.fn();
+    vi.doMock("@prisma/client", () => ({
+      PrismaClient: class {
+        constructor(...args: unknown[]) {
+          construct(...args);
+        }
+      },
+    }));
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("POSTGRES_PRISMA_URL", "postgresql://legacy-prisma");
+
+    await import("./db");
+
+    expect(construct).toHaveBeenCalledWith({ datasourceUrl: "postgresql://legacy-prisma" });
+  });
+
   it("does not write to globalThis in production", async () => {
     vi.stubEnv("NODE_ENV", "production");
 
