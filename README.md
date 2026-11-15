@@ -3,7 +3,8 @@
 Web app for managing shared household chores for couples, families, roommates, or
 any other group.
 
-**Contents:** [The problem](#the-problem) ·
+**Contents:** [Live demo](#live-demo) ·
+[The problem](#the-problem) ·
 [What it does](#what-it-does) ·
 [How it works](#how-it-works) ·
 [Tech stack](#tech-stack) ·
@@ -17,6 +18,21 @@ any other group.
 [CI](#ci) ·
 [Environment variables](#environment-variables) ·
 [Deploy to Vercel](#deploy-to-vercel)
+
+## Live demo
+
+Live demo: _not deployed yet_
+
+Sign up with any email, or sign in to the seeded demo household:
+
+| Role   | Email               | Password           |
+| ------ | ------------------- | ------------------ |
+| Admin  | `admin@example.com` | `sparkle-otter-42` |
+| Member | `member@example.com`| `maple-badger-77`  |
+
+The demo accounts are shared and public, so anyone can change their data. It
+runs on free tiers (Vercel Hobby and Neon), so the first request after a quiet
+spell can take a few seconds while the database wakes up.
 
 ## The problem
 
@@ -485,7 +501,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm run dev:all`   | Start Postgres, apply migrations, seed if empty, then start the dev server — see [Quick start](#quick-start) |
 | `npm run dev`       | Start the Next.js dev server on <http://localhost:3000> |
 | `npm run build`     | Production build                                        |
-| `npm run vercel-build` | Apply migrations (`prisma migrate deploy`), then build — the Vercel build command |
+| `npm run vercel-build` | The Vercel build command: map the Neon variables, check the required ones, apply migrations (`prisma migrate deploy`), then build — see [Deploy to Vercel](#deploy-to-vercel) |
 | `npm start`         | Serve the production build                              |
 | `npm run docker:up` | Build and start Postgres + the app in Docker Compose, wait until healthy — see [Run with Docker](#run-with-docker) |
 | `npm run docker:down` | Stop the Compose stack (data is kept)                 |
@@ -494,6 +510,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm run test:watch`| Run the unit tests in watch mode                        |
 | `npm run test:integration` | Run the integration tests against a real, migrated `chores_test` database |
 | `npm run test:e2e`  | Build, start on port 3100, and run the Playwright smoke tests (needs a migrated database) |
+| `npm run test:e2e:remote` | Run the same Playwright specs against a deployed app at `E2E_BASE_URL` (required); no local server — see [Verify the deployment](#5-verify-the-deployment) |
 | `npm run test:all`  | Start the Compose Postgres, create and migrate `chores_test`, then run unit, integration and end-to-end tests — see [Tests](#tests) |
 | `npm run lint`      | Lint with ESLint                                        |
 | `npm run typecheck` | Generate route types and run `tsc --noEmit`             |
@@ -564,101 +581,150 @@ database, prints the Compose logs if anything fails, and removes the stack with
 
 ## Environment variables
 
-All of them are documented in [`.env.example`](.env.example). In production set
-each one in the Vercel project (Settings → Environment Variables, Production
-environment).
+All of them are documented in [`.env.example`](.env.example). On Vercel with
+the Neon integration you only add `AUTH_SECRET` yourself — see
+[Deploy to Vercel](#deploy-to-vercel).
 
-| Variable          | Local value (`.env`)                    | Production (Vercel) |
+| Variable          | Local value (`.env`)                    | Production (Vercel + Neon) |
 | ----------------- | --------------------------------------- | ------------------- |
-| `DATABASE_URL`    | Docker Postgres URL                     | Hosted Postgres **pooled** connection string — used by the app at runtime |
-| `DIRECT_URL`      | Same as `DATABASE_URL`                  | Hosted Postgres **direct** (non-pooled) connection string — used by `prisma migrate deploy` |
-| `AUTH_SECRET`     | Any generated secret                    | A new secret for production (`npx auth secret` or `openssl rand -base64 33`) |
-| `AUTH_URL`        | `http://localhost:3000`                 | The deployed origin, exactly — e.g. `https://your-app.vercel.app` (no trailing slash) |
-| `AUTH_TRUST_HOST` | Unset (only for `npm run build && npm start`) | `true` |
+| `DATABASE_URL`    | Docker Postgres URL                     | **Pooled** connection string, used by the app at runtime. Set by the Neon integration. |
+| `DIRECT_URL`      | Same as `DATABASE_URL`                  | **Direct** (non-pooled) connection string, used by `prisma migrate deploy`. Not needed with Neon: the build uses the integration's `DATABASE_URL_UNPOOLED`. |
+| `AUTH_SECRET`     | Any generated secret                    | **Required.** A new secret for production (`npx auth secret` or `openssl rand -base64 33`) |
+| `AUTH_URL`        | `http://localhost:3000`                 | Leave unset. On Vercel, Auth.js takes the origin from the request. |
+| `AUTH_TRUST_HOST` | Unset (only for `npm run build && npm start`) | Leave unset. Auth.js trusts the host by itself when Vercel's `VERCEL` variable is set. |
 
-`AUTH_URL` must match the origin users actually open: Auth.js builds its
-callback and redirect URLs from it, so a mismatch breaks sign-in. If you add a
-custom domain later, update `AUTH_URL` and redeploy.
+The build ([`scripts/vercel-build.mjs`](scripts/vercel-build.mjs)) and the app
+accept the names the Neon integration sets, so nothing has to be renamed:
+
+| Prisma reads    | Taken from the first one that is set |
+| --------------- | ------------------------------------ |
+| `DATABASE_URL`  | `DATABASE_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL` |
+| `DIRECT_URL`    | `DIRECT_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_URL_NON_POOLING` (build only) |
+
+At runtime the app connects only through the pooled URL; `DIRECT_URL` is read
+only by the Prisma CLI.
+
+If you do set `AUTH_URL` (for example on a non-Vercel host), it must match the
+origin users actually open: Auth.js then builds its callback and redirect URLs,
+and the app its invite links, from it, so a mismatch breaks sign-in. On Vercel
+a fixed `AUTH_URL` would also send preview deployments to that origin.
 
 ## Deploy to Vercel
 
-The app runs on Vercel against a hosted PostgreSQL database (Neon, Supabase, or
-Railway).
+The recommended path is free: **Vercel Hobby** for the app and **Neon** (free
+plan) for PostgreSQL, added through the Vercel Marketplace so its connection
+strings land in the Vercel project automatically. The only variable you set by
+hand is `AUTH_SECRET`.
 
 **How the build works.** On install, `postinstall` runs `prisma generate`.
 Vercel's Next.js preset then runs `npm run vercel-build` when that script exists
-(otherwise `npm run build`). `vercel-build` is
-`prisma migrate deploy && next build`, so the committed migrations are applied
-to the production database on every deployment, before the build; a failed
-migration fails the deployment. The seed is **not** part of the build and never
-runs automatically.
+(otherwise `npm run build`). `vercel-build` runs
+[`scripts/vercel-build.mjs`](scripts/vercel-build.mjs), which:
 
-### 1. Provision hosted Postgres
+1. maps the Neon integration's variables to the names Prisma reads
+   (`DATABASE_URL_UNPOOLED` → `DIRECT_URL`, and the legacy `POSTGRES_*` names;
+   see [Environment variables](#environment-variables)) and prints which name
+   each one came from;
+2. stops with one line naming every missing variable (the database URLs and
+   `AUTH_SECRET`);
+3. runs `prisma migrate deploy`, then `next build`, and stops at the first
+   failure with its exit code.
 
-Create a PostgreSQL database on one of:
+So the committed migrations are applied on every deployment, before the build,
+and a failed migration fails the deployment. The seed is **not** part of the
+build and never runs automatically.
 
-- **Neon** — copy the *pooled* connection string (host contains `-pooler`) for
-  `DATABASE_URL` and the *direct* one (same host without `-pooler`) for
-  `DIRECT_URL`.
-- **Supabase** — Project Settings → Database: the *transaction pooler* string
-  (port `6543`, append `&pgbouncer=true`) for `DATABASE_URL` and the *direct* /
-  *session* string (port `5432`) for `DIRECT_URL`.
-- **Railway** — a single connection string; use it for both variables.
+### 1. Import the repository
 
-Keep `sslmode=require` on both strings if the provider includes it.
+In Vercel, **Add New → Project**, import the GitHub repository. Keep the
+detected **Next.js** framework preset and leave the Build Command at its
+default (do not override it to `next build`, or migrations are skipped).
 
-### 2. Create the Vercel project
+Under **Environment Variables** on the same screen add `AUTH_SECRET` — a new
+secret (`npx auth secret` or `openssl rand -base64 33`) — for all
+environments. Do not add `AUTH_URL` or `AUTH_TRUST_HOST`: on Vercel, Auth.js
+trusts the host because `VERCEL` is set and builds its URLs from the request
+(`@auth/core` `setEnvDefaults` / `createActionURL`); invite links use the same
+request origin.
 
-Import the GitHub repository in Vercel. Keep the detected **Next.js** framework
-preset and leave the Build Command at its default (do not override it to
-`next build`, or migrations are skipped).
+Click **Deploy**. This first build fails with
+`Missing required environment variable(s): DATABASE_URL …` because there is no
+database yet — expected.
 
-### 3. Set environment variables
+### 2. Add Neon from the Vercel Marketplace
 
-In the Vercel project, Settings → Environment Variables, add for **Production**:
+In the project, **Storage → Create Database → Neon**, pick the free plan and a
+region close to the app's functions (Vercel's default is Washington, D.C.,
+`iad1`, so AWS `us-east-1`), and connect it to the project. Do **not** set a
+custom environment variable prefix: the build looks for the default names
+(`DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_*`).
 
-- `DATABASE_URL` — pooled connection string
-- `DIRECT_URL` — direct connection string
-- `AUTH_SECRET` — a new generated secret
-- `AUTH_URL` — the production origin, e.g. `https://your-app.vercel.app`
-- `AUTH_TRUST_HOST` — `true`
+Connect it to **Production**, and to **Preview** only with Neon's database
+branch per preview deployment turned on. Every build runs
+`prisma migrate deploy`, so a preview build sharing the production database
+would migrate production from an unmerged branch. Without preview branching,
+leave Preview unconnected: preview builds then stop at the missing-variable
+check instead.
 
-If you do not know the final origin yet, deploy once, copy the production
-domain from the Vercel dashboard into `AUTH_URL`, and redeploy.
+### 3. Redeploy
 
-### 4. Deploy and run migrations
+**Deployments → … → Redeploy** (or push to `main`). The build log shows
+`DATABASE_URL from DATABASE_URL`, `DIRECT_URL from DATABASE_URL_UNPOOLED`, then
+`prisma migrate deploy` applying the migrations, then `next build`. Nothing
+else is needed for migrations.
 
-Trigger a deployment (push to `main`, or Deployments → Redeploy). The build log
-shows `prisma migrate deploy` applying any pending migrations, then
-`next build`. Nothing else is needed for migrations.
-
-To apply migrations by hand instead (for example to check them before a
-deploy), run from your machine with the production **direct** URL:
-
-```bash
-DATABASE_URL="<direct url>" DIRECT_URL="<direct url>" npx prisma migrate deploy
-```
-
-### 5. Optionally seed once
+### 4. Optionally seed the demo household once
 
 The seed loads the built-in categories and a demo household with the demo users
-listed under [Seed demo data](#4-seed-demo-data). Run it at most once, by hand,
-only if you want demo data in production (it is idempotent, but the demo
-passwords are public in this README):
+listed under [Live demo](#live-demo). Run it at most once, by hand, only if you
+want demo data in production (it is idempotent, but the demo passwords are
+public in this README). With the [Vercel CLI](https://vercel.com/docs/cli),
+from the repository root:
 
 ```bash
-DATABASE_URL="<direct url>" DIRECT_URL="<direct url>" npm run db:seed
+npx vercel link                                             # once: pick the project
+npx vercel env pull .env.vercel --environment=production    # git-ignored (.env*)
+set -a; . ./.env.vercel; set +a
+DATABASE_URL="$DATABASE_URL_UNPOOLED" DIRECT_URL="$DATABASE_URL_UNPOOLED" npm run db:seed
+rm .env.vercel
 ```
 
-### 6. Verify the deployment
+The seed runs over the direct (unpooled) connection. The same variables work
+for `npx prisma migrate deploy` by hand, for example to check migrations before
+a deploy.
 
-Open the production URL and check, in order:
+### 5. Verify the deployment
 
-1. Sign up at `/signup` with a new email and password — you land signed in
-   (this also confirms `AUTH_URL`, `AUTH_SECRET` and `AUTH_TRUST_HOST` are right).
+Run the Playwright specs against the live app (no local server or database is
+started):
+
+```bash
+npx playwright install chromium   # once per Playwright version
+E2E_BASE_URL=https://your-app.vercel.app npm run test:e2e:remote
+```
+
+They sign up, create a household, create and complete a chore, and join through
+an invite link — which also proves `AUTH_SECRET`, the database and the
+migrations are right. The specs only create their own users (unique
+`e2e-…@example.com` emails) and households and never touch existing data, so
+they are safe against production; the rows they create stay there.
+
+Or check by hand, in order:
+
+1. Sign up at `/signup` with a new email and password — you land signed in.
 2. Create a household at `/household/new`.
 3. Create a chore at `/chores/new`.
 4. Complete the chore on `/chores` — it shows as completed.
+
+Then put the URL in [Live demo](#live-demo) and fill in the record below.
+
+### Other Postgres hosts
+
+Any hosted PostgreSQL works if you set the variables yourself: `DATABASE_URL`
+(pooled) and `DIRECT_URL` (direct). On **Supabase** use the transaction pooler
+(port `6543`, append `&pgbouncer=true`) for `DATABASE_URL` and the session /
+direct string (port `5432`) for `DIRECT_URL`; on **Railway** use its single
+connection string for both. Keep `sslmode=require` if the provider includes it.
 
 ### Deployment verification record
 

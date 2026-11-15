@@ -58,11 +58,12 @@ Load only the docs the job needs.
 - `npm test` — run the Vitest unit suite once (alias `npm run test:unit`; `npm run test:watch` for watch mode)
 - `npm run test:integration` — Vitest integration tests: real Server Actions + Prisma against the `chores_test` database (never the dev DB)
 - `npm run test:e2e` — Playwright end-to-end tests
+- `npm run test:e2e:remote` — the same Playwright specs against a deployed app: `E2E_BASE_URL=https://… npm run test:e2e:remote` (required; no local server is started)
 - `npm run test:all` — every layer with one command: starts the Compose Postgres, creates and migrates `chores_test`, then unit → integration → e2e against it; stops at the first failure
 - `npm run lint` — ESLint
 - `npm run typecheck` — `next typegen` then `tsc --noEmit`
 - `npm run db:migrate` / `db:reset` / `db:seed` / `db:studio` — `prisma migrate dev`, `prisma migrate reset`, seed, Prisma Studio
-- `npm run vercel-build` — used by Vercel: `prisma migrate deploy` then `next build`
+- `npm run vercel-build` — used by Vercel (`scripts/vercel-build.mjs`): maps the Neon integration's env names (`DATABASE_URL_UNPOOLED` → `DIRECT_URL`, legacy `POSTGRES_*`), fails on missing `DATABASE_URL` / `DIRECT_URL` / `AUTH_SECRET`, then `prisma migrate deploy` and `next build`; never seeds
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it applies
 the Prisma migrations to a PostgreSQL service, fails if `schema.prisma` has a change

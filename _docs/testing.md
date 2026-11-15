@@ -45,6 +45,10 @@
 - `npm run test:watch` — unit tests in watch mode for local development.
 - `npm run test:integration` — integration tests (see below).
 - `npm run test:e2e` — Playwright end-to-end smoke tests (see below).
+- `npm run test:e2e:remote` — the same specs against a deployed app at
+  `E2E_BASE_URL` (required), with no local server. Specs must keep creating
+  their own users and households (unique emails via `uniqueEmail`) so this stays
+  safe against production.
 - `npm run test:all` — every layer, with the database set up for you (see below).
 
 ## Integration tests
