@@ -21,18 +21,17 @@ any other group.
 
 ## Live demo
 
-Live demo: _not deployed yet_
+Live demo: <https://shared-household-chores.vercel.app> — hosted on Vercel Hobby
+with a free Neon Postgres database; it deploys automatically from `main`.
 
-Sign up with any email, or sign in to the seeded demo household:
+The demo data is not seeded in production, so sign up with any email and
+password (it does not have to be real — no email is sent), create a household,
+and invite others from **Members**. The maintainer can add the demo household
+once by hand — see [step 4 of the deploy runbook](#4-optionally-seed-the-demo-household-once).
 
-| Role   | Email               | Password           |
-| ------ | ------------------- | ------------------ |
-| Admin  | `admin@example.com` | `sparkle-otter-42` |
-| Member | `member@example.com`| `maple-badger-77`  |
-
-The demo accounts are shared and public, so anyone can change their data. It
-runs on free tiers (Vercel Hobby and Neon), so the first request after a quiet
-spell can take a few seconds while the database wakes up.
+Anything you enter is visible to whoever signs in to the same household, so do
+not use real personal data. It runs on free tiers, so the first request after a
+quiet spell can take a few seconds while the database wakes up.
 
 ## The problem
 
@@ -676,9 +675,9 @@ else is needed for migrations.
 ### 4. Optionally seed the demo household once
 
 The seed loads the built-in categories and a demo household with the demo users
-listed under [Live demo](#live-demo). Run it at most once, by hand, only if you
-want demo data in production (it is idempotent, but the demo passwords are
-public in this README). With the [Vercel CLI](https://vercel.com/docs/cli),
+listed under [Seed demo data](#4-seed-demo-data). Run it at most once, by hand,
+only if you want demo data in production (it is idempotent, but the demo
+passwords are public in this README). The live demo above is not seeded. With the [Vercel CLI](https://vercel.com/docs/cli),
 from the repository root:
 
 ```bash
@@ -728,16 +727,22 @@ connection string for both. Keep `sslmode=require` if the provider includes it.
 
 ### Deployment verification record
 
-One-time end-to-end check of the deployed environment. Fill in after the first
+One-time end-to-end check of the deployed environment, after the first
 production deploy.
 
-- Date:
-- Deployed URL:
-- Commit:
+- Date: 2026-11-14
+- Deployed URL: <https://shared-household-chores.vercel.app>
+- Commit: `main` at `7c2deab` (Vercel Hobby + Neon free)
+- How: `E2E_BASE_URL=https://shared-household-chores.vercel.app npm run test:e2e:remote`
+  (2 passed: `chore-lifecycle.spec.ts` 5.5s, `invite.spec.ts` 8.2s), plus a manual
+  check in a browser
 
 | Step                | Result (✓ / ✗) | Notes |
 | ------------------- | -------------- | ----- |
-| Sign up             |                |       |
-| Create household    |                |       |
-| Create chore        |                |       |
-| Complete chore      |                |       |
+| Sign up             | ✓              | Lands on `/household/new`, signed in |
+| Create household    | ✓              | Lands on the dashboard ("My chores") |
+| Create chore        | ✓              | `chore-lifecycle.spec.ts` |
+| Complete chore      | ✓              | Shows as completed on `/chores` |
+| Invite → join       | ✓              | Invite URL uses the production origin (`https://shared-household-chores.vercel.app/invite/…`); the invitee signs up and joins as a member |
+| Sign out → sign in  | ✓              | `/chores` and `/household/members` load |
+| Demo accounts       | ✗              | Not seeded in production — `admin@example.com` gets "Invalid email or password." (expected; see step 4) |
