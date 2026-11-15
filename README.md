@@ -662,8 +662,16 @@ Connect it to **Production**, and to **Preview** only with Neon's database
 branch per preview deployment turned on. Every build runs
 `prisma migrate deploy`, so a preview build sharing the production database
 would migrate production from an unmerged branch. Without preview branching,
-leave Preview unconnected: preview builds then stop at the missing-variable
-check instead.
+leave Preview unconnected.
+
+**Preview deployments are off.** [`vercel.json`](vercel.json) sets
+`git.deploymentEnabled` to `{ "main": true, "**": false }`, so Vercel deploys
+only `main` (production); every other branch is tested by CI against a real
+PostgreSQL instead of failing a preview build at the missing-variable check.
+To turn previews on later, enable Neon's database branch per preview
+deployment, connect Neon and `AUTH_SECRET` to **Preview**, then remove the
+`"**"` rule (Vercel matches branches with minimatch, where `*` stops at `/`, so
+`"**"` is what covers `feat/…` branches).
 
 ### 3. Redeploy
 
