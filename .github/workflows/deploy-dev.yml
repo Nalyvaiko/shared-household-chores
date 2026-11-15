@@ -1,0 +1,132 @@
+name: Deploy to dev
+
+# Continuous delivery to the dev environment: every push to main that passes
+# CI is built with the Vercel CLI against the project's Preview environment
+# variables (the dev database), deployed as a Vercel preview deployment,
+# aliased to the fixed dev URL, then smoke-tested with the Playwright specs.
+#
+# workflow_run only fires for this file on the default branch, so the workflow
+# starts working once it is merged. Setup: README, "CI/CD".
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+# One dev deploy at a time; a newer one waits instead of cancelling a deploy
+# that may be running migrations.
+concurrency:
+  group: deploy-development
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  VERCEL_CLI_VERSION: 65.5.0
+  DEV_ALIAS: shared-household-chores-dev.vercel.app
+
+jobs:
+  deploy-dev:
+    # Only a successful CI run for a push to main in this repository (not a
+    # pull request from a fork branch that happens to be called main).
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    environment:
+      name: development
+      url: https://shared-household-chores-dev.vercel.app
+    outputs:
+      deployment-url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Check deploy secrets
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          missing=""
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!name}" ]; then missing="$missing $name"; fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secret(s):$missing. Add them in Settings > Secrets and variables > Actions (README, CI/CD setup)."
+            exit 1
+          fi
+
+      # The exact commit CI passed, not whatever main points at now.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the Vercel CLI
+        run: npm install --global "vercel@$VERCEL_CLI_VERSION"
+
+      # Preview environment variables = the dev database and dev AUTH_SECRET.
+      - name: Pull the Vercel Preview environment
+        run: vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # Runs `npm run vercel-build`: `prisma migrate deploy` against the dev
+      # database, then `next build`. No demo data is loaded.
+      - name: Build
+        run: vercel build --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          echo "Deployed $url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Point the dev URL at the deployment
+        run: vercel alias set "${{ steps.deploy.outputs.url }}" "$DEV_ALIAS" --token="$VERCEL_TOKEN"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # Smoke tests against the live dev URL. Same browser caching as ci.yml.
+      - name: Read Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # VERCEL_AUTOMATION_BYPASS_SECRET is optional: needed only while
+      # Deployment Protection covers preview deployments. No report upload:
+      # traces would contain that secret.
+      - name: Smoke tests against dev
+        run: npm run test:e2e:remote
+        env:
+          E2E_BASE_URL: https://${{ env.DEV_ALIAS }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
