@@ -10,6 +10,14 @@ const remoteBaseURL = process.env.E2E_BASE_URL;
 const baseURL = remoteBaseURL || `http://localhost:${PORT}`;
 const isCI = Boolean(process.env.CI);
 
+// A deployment behind Vercel Deployment Protection (e.g. the dev deployment)
+// answers 401 without this header. Sent only to a remote app, only when set.
+const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+const bypassHeaders =
+  remoteBaseURL && bypassSecret
+    ? { extraHTTPHeaders: { "x-vercel-protection-bypass": bypassSecret } }
+    : {};
+
 // Only pass the database URLs through when they are set; otherwise
 // `next start` falls back to `.env`.
 const databaseEnv = Object.fromEntries(
@@ -27,6 +35,7 @@ export default defineConfig({
   use: {
     baseURL,
     trace: "retain-on-failure",
+    ...bypassHeaders,
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: remoteBaseURL

@@ -37,14 +37,13 @@ describe("deployment configuration", () => {
     }
   });
 
-  it("lets Vercel deploy only main from Git", () => {
+  it("turns off Git-triggered Vercel deployments for every branch", () => {
     const vercel = JSON.parse(read("vercel.json")) as {
       git?: { deploymentEnabled?: unknown };
     };
-    // Minimatch: "**" also matches branch names with "/" (feat/…), and a
-    // branch matching both rules deploys when either is true, so main still
-    // deploys to production.
-    expect(vercel.git?.deploymentEnabled).toEqual({ main: true, "**": false });
+    // GitHub Actions deploys instead (.github/workflows/deploy-dev.yml and
+    // deploy-production.yml), so a push must not also start a Vercel build.
+    expect(vercel.git?.deploymentEnabled).toBe(false);
   });
 
   it("documents every deploy variable in .env.example and the README", () => {
