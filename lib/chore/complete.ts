@@ -1,6 +1,7 @@
 import type { Chore, Prisma } from "@prisma/client";
 
 import { nextDueAt } from "@/lib/chore/recurrence";
+import { inSpan, setSpanAttributes } from "@/lib/observability/telemetry";
 
 // Completing a chore, inside a transaction the caller opened. The caller has
 // already locked the Household row and re-read the caller's membership, so
@@ -54,14 +55,24 @@ export async function completeChoreInTransaction(
 ): Promise<CompleteChoreOutcome> {
   if (!choreId) return { kind: "gone" };
 
+  // Each step is a child span of `chores.complete` (a no-op when telemetry is
+  // off); only enum values are recorded on them.
   // Filtered by household, so another household's chore is never locked.
-  const locked = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM "Chore" WHERE id = ${choreId} AND "householdId" = ${householdId} FOR UPDATE`;
+  const locked = await inSpan(
+    "chores.complete.lock",
+    {},
+    () => tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Chore" WHERE id = ${choreId} AND "householdId" = ${householdId} FOR UPDATE`,
+  );
   if (locked.length === 0) return { kind: "gone" };
 
-  const chore = await tx.chore.findUnique({
-    where: { id: choreId },
-    include: { assignees: { select: { userId: true } } },
+  const chore = await inSpan("chores.complete.read", {}, async (span) => {
+    const found = await tx.chore.findUnique({
+      where: { id: choreId },
+      include: { assignees: { select: { userId: true } } },
+    });
+    if (found) setSpanAttributes(span, { "chore.recurrence": found.recurrence });
+    return found;
   });
   if (!chore || chore.householdId !== householdId) return { kind: "gone" };
   if (chore.status !== "pending") return { kind: "not-pending" };
@@ -70,39 +81,45 @@ export async function completeChoreInTransaction(
   }
   if (!canComplete(chore, userId)) return { kind: "not-assignee" };
 
-  // `update` (not `updateMany`) so `updatedAt` moves.
-  const completed = await tx.chore.update({
-    where: { id: chore.id },
-    data: { status: "completed" },
-  });
-  // The server's `now`, not the column default, so roll-over (#17) can use
-  // the same instant.
-  await tx.completionRecord.create({
-    data: { choreId: chore.id, userId, completedAt: now },
+  const completed = await inSpan("chores.complete.write", {}, async () => {
+    // `update` (not `updateMany`) so `updatedAt` moves.
+    const updated = await tx.chore.update({
+      where: { id: chore.id },
+      data: { status: "completed" },
+    });
+    // The server's `now`, not the column default, so roll-over (#17) can use
+    // the same instant.
+    await tx.completionRecord.create({
+      data: { choreId: chore.id, userId, completedAt: now },
+    });
+    return updated;
   });
 
   // Roll-over: a recurring chore gets its next pending occurrence in the same
   // transaction, so a throw here rolls the completion back too. A fixed chore
   // keeps the assignee set read under the lock (removed members included); a
   // claim chore starts unclaimed.
-  if (chore.recurrence !== "none") {
-    await tx.chore.create({
-      data: {
-        householdId: chore.householdId,
-        createdById: chore.createdById,
-        title: chore.title,
-        priority: chore.priority,
-        effort: chore.effort,
-        categoryId: chore.categoryId,
-        assignmentMode: chore.assignmentMode,
-        recurrence: chore.recurrence,
-        status: "pending",
-        dueAt: nextDueAt(chore.recurrence, chore.dueAt, now),
-        ...(chore.assignmentMode === "fixed" && {
-          assignees: { create: chore.assignees.map((a) => ({ userId: a.userId })) },
-        }),
-      },
-    });
+  const { recurrence } = chore;
+  if (recurrence !== "none") {
+    await inSpan("chores.complete.roll_over", { "chore.recurrence": recurrence }, () =>
+      tx.chore.create({
+        data: {
+          householdId: chore.householdId,
+          createdById: chore.createdById,
+          title: chore.title,
+          priority: chore.priority,
+          effort: chore.effort,
+          categoryId: chore.categoryId,
+          assignmentMode: chore.assignmentMode,
+          recurrence,
+          status: "pending",
+          dueAt: nextDueAt(recurrence, chore.dueAt, now),
+          ...(chore.assignmentMode === "fixed" && {
+            assignees: { create: chore.assignees.map((a) => ({ userId: a.userId })) },
+          }),
+        },
+      }),
+    );
   }
   return { kind: "completed", chore: completed };
 }

@@ -9,6 +9,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
+    // The journey logs (lib/observability/logger.ts) stay off the test output.
+    env: { LOG_LEVEL: "silent" },
     include: ["**/*.{test,spec}.{ts,tsx}"],
     // e2e/ holds the Playwright specs (`npm run test:e2e`); integration/ holds
     // the database tests (`npm run test:integration`).

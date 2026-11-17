@@ -29,6 +29,7 @@ import { skipChoreInTransaction, type SkipChoreOutcome } from "@/lib/chore/skip"
 import { inHouseholdTransaction } from "@/lib/chore/transaction";
 import { skipReasonSchema } from "@/lib/chore/validation";
 import { formId } from "@/lib/form-id";
+import { traceCompleteChore } from "@/lib/observability/complete-chore-journey";
 
 /** The outcome of a chore row action, shown in the page's message region. */
 export type ChoreActionState =
@@ -110,26 +111,35 @@ export async function completeChore(
   _prev: ChoreActionState,
   formData: FormData,
 ): Promise<ChoreActionState> {
-  // One server "now" for the whole request; nothing but `choreId` is read
-  // from the form. The household and user come from the session. Redirects
-  // throw, so they stay outside try and the transaction callback.
-  const now = new Date();
-  const current = await requireHousehold();
-  const householdId = current.household.id;
-  const userId = current.membership.userId;
-  const choreId = formId(formData, "choreId");
-  if (choreId === null) return goneWithoutQuery();
+  // The key journey: traced, measured and logged (see
+  // lib/observability/complete-chore-journey.ts).
+  return traceCompleteChore(async (journey) => {
+    // One server "now" for the whole request; nothing but `choreId` is read
+    // from the form. The household and user come from the session. Redirects
+    // throw, so they stay outside try and the transaction callback.
+    const now = new Date();
+    const current = await requireHousehold();
+    const householdId = current.household.id;
+    const userId = current.membership.userId;
+    const choreId = formId(formData, "choreId");
+    journey.attempted(choreId);
+    if (choreId === null) {
+      journey.finished({ kind: "gone" });
+      return goneWithoutQuery();
+    }
 
-  const outcome = await inHouseholdTransaction(householdId, userId, (tx) =>
-    completeChoreInTransaction(tx, { choreId, householdId, userId, now }),
-    RECORD_EXISTS,
-  );
-  afterOutcome(outcome);
+    const outcome = await inHouseholdTransaction(householdId, userId, (tx) =>
+      completeChoreInTransaction(tx, { choreId, householdId, userId, now }),
+      RECORD_EXISTS,
+    );
+    journey.finished(outcome);
+    afterOutcome(outcome);
 
-  if (outcome.kind === "completed") {
-    return { status: "success", message: choreCompletedMessage(outcome.chore.title) };
-  }
-  return { status: "error", message: REFUSALS[outcome.kind] };
+    if (outcome.kind === "completed") {
+      return { status: "success", message: choreCompletedMessage(outcome.chore.title) };
+    }
+    return { status: "error", message: REFUSALS[outcome.kind] };
+  });
 }
 
 export async function skipChore(
