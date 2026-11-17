@@ -23,7 +23,9 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "observability:up": "docker compose --profile observability up -d --wait observability",
+    "observability:down": "docker compose --profile observability stop observability"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"
@@ -32,7 +34,17 @@
     "#lib/builtin-categories": "./lib/builtin-categories.ts"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.223.2",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.223.2",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.223.2",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.223.2",
+    "@opentelemetry/resources": "^2.12.1",
+    "@opentelemetry/sdk-logs": "^0.223.2",
+    "@opentelemetry/sdk-metrics": "^2.12.1",
+    "@opentelemetry/sdk-trace-node": "^2.12.1",
     "@prisma/client": "^6.19.3",
+    "@prisma/instrumentation": "^6.19.3",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

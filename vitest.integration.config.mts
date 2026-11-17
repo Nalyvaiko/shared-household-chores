@@ -37,6 +37,8 @@ export default defineConfig({
     env: {
       DATABASE_URL: url,
       DIRECT_URL: url,
+      // The journey logs (lib/observability/logger.ts) stay off the test output.
+      LOG_LEVEL: "silent",
     },
   },
 });

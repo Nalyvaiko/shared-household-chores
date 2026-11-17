@@ -171,6 +171,40 @@ curl -I http://localhost:3142/signin
 docker compose -p docker-check down -v
 ```
 
+## Observability (telemetry)
+
+Telemetry is off in every test layer and in CI: nothing sets
+`OTEL_EXPORTER_OTLP_ENDPOINT`, so `instrumentation.ts` registers no SDK and the
+spans, metrics and log records in `lib/observability/` are no-ops. Both Vitest
+configs set `LOG_LEVEL=silent`, so the journey's JSON log lines stay off the
+test output.
+
+- **Unit:** `lib/observability/privacy.test.ts` (the allow-list drops emails,
+  titles, passwords, cookies, headers, invite tokens, query strings, ids other
+  than the chore's; SQL literals are redacted) and
+  `lib/observability/telemetry-signals.test.ts` (a real SDK with in-memory
+  exporters behind the scrubbing wrappers: exported spans and log records hold
+  no secrets, log lines carry the active span's `trace_id`/`span_id`, the
+  journey records its span, metrics and logs under one trace, a redirect is
+  not an error). `instrumentation.test.ts` checks the SDK starts only with an
+  endpoint and only in the Node.js runtime. `tests/docker.test.ts` checks the
+  `observability` Compose profile and the dashboard.
+- **By hand, end to end:** run the stack on separate ports, drive the journey,
+  then query the backends through Grafana's datasource proxy:
+
+```bash
+COMPOSE_PROJECT_NAME=obs-check CHORES_DB_PORT=55443 APP_PORT=3143 \
+  OBSERVABILITY_UI_PORT=3144 OTLP_HTTP_PORT=4319 \
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://observability:4318 \
+  docker compose --profile observability up -d --build --wait
+E2E_BASE_URL=http://localhost:3143 npx playwright test e2e/chore-lifecycle.spec.ts
+G=http://localhost:3144/api/datasources/proxy/uid
+curl "$G/tempo/api/search?tags=service.name%3Dshared-household-chores"
+curl -G "$G/loki/loki/api/v1/query_range" --data-urlencode 'query={service_name="shared-household-chores"}'
+curl "$G/prometheus/api/v1/query?query=chores_completions_total"
+docker compose -p obs-check --profile observability down -v
+```
+
 ## Scope for the MVP
 
 Add unit tests for anything with real logic: authorization helpers, recurrence

@@ -1,0 +1,14 @@
+# Grafana dashboard provider for the `observability` Compose service
+# (grafana/otel-lgtm). Mounted into the image's provisioning folder; loads
+# every dashboard JSON in observability/grafana/dashboards/.
+apiVersion: 1
+
+providers:
+  - name: "shared-household-chores"
+    folder: "shared-household-chores"
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /otel-lgtm/chores-dashboards
+      foldersFromFilesStructure: false

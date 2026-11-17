@@ -64,6 +64,7 @@ Load only the docs the job needs.
 - `npm run typecheck` — `next typegen` then `tsc --noEmit`
 - `npm run db:migrate` / `db:reset` / `db:seed` / `db:studio` — `prisma migrate dev`, `prisma migrate reset`, seed, Prisma Studio
 - `npm run vercel-build` — used by `vercel build` (`scripts/vercel-build.mjs`): maps the Neon integration's env names (`DATABASE_URL_UNPOOLED` → `DIRECT_URL`, legacy `POSTGRES_*`), fails on missing `DATABASE_URL` / `DIRECT_URL` / `AUTH_SECRET`, then `prisma migrate deploy` and `next build`; never seeds
+- `npm run observability:up` / `observability:down` — the local OpenTelemetry stack (`grafana/otel-lgtm`, Compose profile `observability`; Grafana on :3001, OTLP/HTTP on :4318). Telemetry is off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set (e.g. `http://localhost:4318`). Telemetry attributes and log fields must pass the allow-list in `lib/observability/privacy.ts`; never add customer data or credentials. See README "Observability".
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: it applies
 the Prisma migrations to a PostgreSQL service, fails if `schema.prisma` has a change

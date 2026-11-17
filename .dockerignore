@@ -9,6 +9,7 @@
 !public/
 !docker/
 !auth.ts
+!instrumentation.ts
 !components.json
 !next.config.ts
 !package.json

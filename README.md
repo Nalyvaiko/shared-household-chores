@@ -217,6 +217,7 @@ leaves room, the app makes these choices:
 - [Auth.js](https://authjs.dev) v5 Credentials provider + bcrypt
 - Tailwind CSS + [shadcn/ui](https://ui.shadcn.com)
 - Vitest and Playwright for tests
+- OpenTelemetry (opt-in) for traces, metrics and logs of the key journey
 - Deployed on Vercel with hosted Postgres (Neon, Supabase or Railway)
 - No message queue, no Redis, no transactional email
 
@@ -405,6 +406,118 @@ The app container uses the same `db` service (and volume) as
 `npm run dev:all`, so both see the same data. Use `COMPOSE_PROJECT_NAME` (or
 `docker compose -p NAME`) for a fully separate stack.
 
+## Observability
+
+The key user journey, **complete a chore** (the Complete button → the
+`completeChore` Server Action → the locked transaction with roll-over), is
+instrumented with [OpenTelemetry](https://opentelemetry.io): traces, metrics
+and structured logs that share a trace ID. It is **off by default**: with no
+`OTEL_EXPORTER_OTLP_ENDPOINT` nothing is registered, exported or sent, so
+tests, CI, Docker and Vercel run exactly as without it.
+
+### What is recorded
+
+| Signal | Name | Attributes / fields |
+| --- | --- | --- |
+| Trace | `chores.complete` (one per Complete click) with children `chores.complete.lock`, `chores.complete.read`, `chores.complete.write`, `chores.complete.roll_over`, plus Prisma's own spans (`prisma:client:operation`, `prisma:engine:db_query`, …) and Next.js's request spans | `chore.outcome` (`completed`, `not-pending`, `unclaimed`, `not-assignee`, `gone`, `caller-gone`, `error`), `chore.recurrence`, `chore.rolled_over`, `chore.id`; a failure sets the span's error status and `error.type` |
+| Metric | `chores.completions` counter (Prometheus: `chores_completions_total`) | `chore.outcome` |
+| Metric | `chores.complete.duration` histogram, ms (`chores_complete_duration_milliseconds_*`) | `chore.outcome` |
+| Metric | `chores.rollovers` counter (`chores_rollovers_total`) | `chore.recurrence` |
+| Log | `chore.complete.attempted`, `chore.complete.succeeded`, `chore.complete.refused`, `chore.complete.failed`, `chore.rollover.created` | `trace_id`, `span_id`, `chore.outcome`, `chore.recurrence`, `duration_ms`, `chore.id` |
+
+Logs are JSON lines on stdout (always; `LOG_LEVEL=debug|info|warn|error|silent`,
+default `info`) and, when telemetry is on, OpenTelemetry log records. Inside
+the journey both carry the active span's `trace_id` and `span_id`, so a log
+line leads to its trace and a trace to its log lines. The code:
+[`instrumentation.ts`](instrumentation.ts), [`lib/observability/`](lib/observability).
+
+### Privacy: no customer data or credentials
+
+Enforced in code, not by convention
+([`lib/observability/privacy.ts`](lib/observability/privacy.ts)):
+
+- **Allow-list.** Every span attribute (ours, Next.js's and Prisma's), log
+  field and metric attribute must be on a fixed list of names, and its value
+  must pass that name's check (an enum value, a boolean, a cuid, a route
+  pattern…). Anything else is dropped. Spans are scrubbed again in the
+  exporter, so a library cannot bypass it.
+- **Never sent:** passwords, session tokens and cookies, `Authorization` and
+  any other HTTP headers, emails, names, chore titles, skip reasons, invite
+  tokens, connection strings, query strings and query parameter values, user
+  ids and household ids. Error messages and stack traces are not recorded
+  (only the error's class name).
+- **Ids.** The chore id is the only record id sent: an opaque random cuid that
+  says nothing about a person, useful to find the row behind a refusal. User
+  and household ids are omitted (not hashed: a hash of a known id can be
+  matched back).
+- **URLs.** `http.target` and `http.url` are dropped; span names lose any query
+  string, and `/invite/<token>` becomes `/invite/[token]`.
+- **SQL.** Prisma's statements are parameterized (`$1`); string and number
+  literals are redacted anyway.
+- **Resource.** Only `service.name` (`shared-household-chores`) and
+  `deployment.environment.name` (`DEPLOYMENT_ENVIRONMENT`, else `VERCEL_ENV`,
+  else `NODE_ENV`); no host or process detectors (no command line, no
+  environment).
+- There is no HTTP auto-instrumentation, so no headers are captured at all.
+
+Unit tests ([`lib/observability/*.test.ts`](lib/observability)) prove the
+scrubber drops these and that log lines carry the span's ids.
+
+### Run it locally: collect, store and view
+
+The `observability` Compose profile runs
+[`grafana/otel-lgtm`](https://github.com/grafana/docker-otel-lgtm): an
+OpenTelemetry Collector, Tempo (traces), Loki (logs), Prometheus (metrics) and
+Grafana in one container, data kept in the `observability-data` volume. Free
+and local; plain `docker compose up`, `dev:all` and `test:all` never start it.
+
+With the dev server:
+
+```bash
+npm run observability:up        # Grafana on :3001, OTLP/HTTP on :4318
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev:all   # or npm run dev
+npm run observability:down      # stop it; data is kept
+```
+
+(PowerShell: `$env:OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"` before
+`npm run dev`.) Or everything in Docker, the app exporting to the collector:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://observability:4318 \
+  docker compose --profile observability up -d --build --wait
+docker compose --profile observability down        # add -v to delete the data
+```
+
+Complete a chore, then open <http://localhost:3001> (no login on this local
+stack) → Dashboards → **shared-household-chores / Complete a chore**:
+completions by outcome, p50/p95 duration, roll-overs, recent
+`chores.complete` traces and the journey logs. Metrics are exported every
+15 s (`OTEL_METRIC_EXPORT_INTERVAL`, ms).
+
+- **Log → trace:** in the logs panel (or Explore → Loki,
+  `{service_name="shared-household-chores"}`), expand a line and click the
+  `trace_id` link.
+- **Trace → logs:** open a trace (the traces table, or Explore → Tempo,
+  `{name="chores.complete"}`), then on a span click **Logs for this span**.
+- `OBSERVABILITY_UI_PORT` and `OTLP_HTTP_PORT` change the host ports.
+
+### Production: a hosted OTLP backend
+
+Not configured by this project. Any OTLP/HTTP backend works by setting the
+standard variables in the deployment (e.g. Vercel → Settings → Environment
+Variables); for the Grafana Cloud free tier, the values come from its
+**OpenTelemetry (OTLP)** connection page:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp-gateway-<zone>.grafana.net/otlp
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20<base64 of instanceId:token>
+DEPLOYMENT_ENVIRONMENT=production   # optional; defaults to VERCEL_ENV
+```
+
+Unset `OTEL_EXPORTER_OTLP_ENDPOINT` to turn it off again. Telemetry is batched
+(spans and logs every few seconds, metrics every 15 s); a serverless instance
+that is frozen right after a request can lose its last batch.
+
 ## Database
 
 The app uses PostgreSQL through [Prisma](https://www.prisma.io). The schema is
@@ -506,6 +619,8 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm start`         | Serve the production build                              |
 | `npm run docker:up` | Build and start Postgres + the app in Docker Compose, wait until healthy — see [Run with Docker](#run-with-docker) |
 | `npm run docker:down` | Stop the Compose stack (data is kept)                 |
+| `npm run observability:up` | Start the local observability stack (Collector, Tempo, Loki, Prometheus, Grafana on :3001) — see [Observability](#observability) |
+| `npm run observability:down` | Stop the observability stack (data is kept)    |
 | `npm test`          | Run the unit tests once (Vitest; the database is mocked) |
 | `npm run test:unit` | Same as `npm test`                                      |
 | `npm run test:watch`| Run the unit tests in watch mode                        |
@@ -677,6 +792,9 @@ the Neon integration you only add `AUTH_SECRET` yourself — see
 | `AUTH_SECRET`     | Any generated secret                    | **Required.** A new secret for production (`npx auth secret` or `openssl rand -base64 33`) |
 | `AUTH_URL`        | `http://localhost:3000`                 | Leave unset. On Vercel, Auth.js takes the origin from the request. |
 | `AUTH_TRUST_HOST` | Unset (only for `npm run build && npm start`) | Leave unset. Auth.js trusts the host by itself when Vercel's `VERCEL` variable is set. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Unset (telemetry off), or `http://localhost:4318` with `npm run observability:up` | Optional. A hosted OTLP/HTTP backend turns telemetry on — see [Observability](#observability) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Unset | Optional. The backend's auth header, e.g. `Authorization=Basic%20...` |
+| `LOG_LEVEL` | Unset (`info`) | Optional. Lowest level of the JSON log lines on stdout (`silent` turns them off) |
 
 The build ([`scripts/vercel-build.mjs`](scripts/vercel-build.mjs)) and the app
 accept the names the Neon integration sets, so nothing has to be renamed:
