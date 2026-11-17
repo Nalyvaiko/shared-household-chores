@@ -12,6 +12,7 @@ results live. The process itself is in [`../process.md`](../process.md).
 | **PM** — [`pm.md`](pm.md) | Grooms one issue so it can be built and checked. Proposes amendments when criteria conflict. | Issue as filed, `_docs/plan.md`, `_docs/tasks.md` | Issue body in [`../task-template.md`](../task-template.md) form; follow-ups listed under Out of scope | Write code; change criteria without maintainer approval |
 | **Engineer** — [`software-engineer.md`](software-engineer.md) | Implements one groomed issue against its criteria, with tests. | Groomed issue (and the QA comment on a fix round) | Pushed `feat/<n>-<slug>` branch with green CI, summary comment on the issue; the PR only when the maintainer asks | Change criteria; close the issue; push to `main` |
 | **QA** — [`qa-engineer.md`](qa-engineer.md) | Checks the result against every criterion and the running code. | Issue criteria, the branch or PR | Verdict comment `## QA: PASS` / `## QA: FAIL` | Change code; judge against anything but the criteria |
+| **On-call agent** (automated) — [`oncall/`](../../oncall), README "On-call agent" | First response to alerts on the local observability stack: diagnoses, applies a known fix from its playbooks, verifies it, and hands anything else to a human. | Grafana alert notifications (webhook) | Incident reports (stdout, `incidents.jsonl`, the alert receiver, Loki); a started or restarted `db` or `app` container | Touch data or volumes; remove anything; act outside its allow-list or its own Compose project; exceed its rate limit |
 
 ## Handoffs
 
