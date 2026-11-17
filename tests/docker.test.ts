@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import {
   REQUIRED_ENV,
@@ -128,6 +129,111 @@ describe("docker-compose.yml", () => {
   });
 });
 
+type AlertQuery = {
+  refId: string;
+  datasourceUid: string;
+  model: { expr?: string; type?: string; conditions?: { evaluator: { type: string; params: number[] } }[] };
+};
+type AlertRule = {
+  uid: string;
+  title: string;
+  condition: string;
+  data: AlertQuery[];
+  for: string;
+  noDataState: string;
+  labels: Record<string, string>;
+  annotations: Record<string, string>;
+};
+
+describe("alerting (Grafana, observability profile)", () => {
+  const rulesFile = parseYaml(read("observability/grafana/alerting/alert-rules.yaml")) as {
+    apiVersion: number;
+    groups: { name: string; folder: string; interval: string; rules: AlertRule[] }[];
+  };
+  const notifications = parseYaml(read("observability/grafana/alerting/notifications.yaml")) as {
+    contactPoints: { name: string; receivers: { type: string; settings: { url: string } }[] }[];
+    policies: { receiver: string }[];
+  };
+  const [group] = rulesFile.groups;
+  const rule = (title: string) => {
+    const found = group.rules.find((candidate) => candidate.title === title);
+    expect(found, title).toBeDefined();
+    return found!;
+  };
+  const query = (r: AlertRule) => r.data.find((d) => d.refId === "A")!;
+  const threshold = (r: AlertRule) => {
+    const condition = r.data.find((d) => d.refId === r.condition)!;
+    expect(condition.model.type).toBe("threshold");
+    return condition.model.conditions![0].evaluator;
+  };
+
+  it("evaluates one group every minute in the project's folder", () => {
+    expect(rulesFile.apiVersion).toBe(1);
+    expect(rulesFile.groups).toHaveLength(1);
+    expect(group.folder).toBe("Shared household chores");
+    expect(group.interval).toBe("1m");
+    expect(group.rules.map((r) => r.title)).toEqual([
+      "Chore completions failing",
+      "Chore completions slow",
+    ]);
+  });
+
+  it("pages on any Complete that ended in a server error", () => {
+    const failing = rule("Chore completions failing");
+    const a = query(failing);
+    expect(a.datasourceUid).toBe("prometheus");
+    expect(a.model.expr).toContain('chores_completions_total{chore_outcome="error"}');
+    expect(a.model.expr).toContain("[5m]");
+    expect(threshold(failing)).toEqual({ type: "gt", params: [0] });
+    expect(failing.for).toBe("1m");
+    expect(failing.labels).toEqual({ severity: "critical", journey: "complete-chore" });
+  });
+
+  it("warns when p95 Complete time stays above 2 s", () => {
+    const slow = rule("Chore completions slow");
+    const a = query(slow);
+    expect(a.datasourceUid).toBe("prometheus");
+    expect(a.model.expr).toMatch(
+      /histogram_quantile\(0\.95,[\s\S]*chores_complete_duration_milliseconds_bucket\[5m\]/,
+    );
+    expect(threshold(slow)).toEqual({ type: "gt", params: [2000] });
+    expect(slow.for).toBe("5m");
+    expect(slow.labels).toEqual({ severity: "warning", journey: "complete-chore" });
+  });
+
+  it("treats no traffic as OK and explains the user impact with a runbook", () => {
+    for (const r of group.rules) {
+      expect(r.noDataState, r.title).toBe("OK");
+      expect(r.annotations.summary, r.title).toBeTruthy();
+      expect(r.annotations.description, r.title).toMatch(/People pressing Complete/);
+      expect(r.annotations.runbook_url, r.title).toMatch(/README\.md#alerts$/);
+    }
+    expect(read("README.md")).toMatch(/^#### Alerts$|^### Alerts$/m);
+  });
+
+  it("sends every alert to the webhook receiver", () => {
+    const [contactPoint] = notifications.contactPoints;
+    expect(contactPoint.receivers[0].type).toBe("webhook");
+    expect(contactPoint.receivers[0].settings.url).toMatch(/^http:\/\/alert-receiver:8080\//);
+    expect(notifications.policies[0].receiver).toBe(contactPoint.name);
+  });
+
+  it("mounts the files into Grafana and runs the receiver only under the profile", () => {
+    const obs = service("observability");
+    expect(obs).toContain(
+      "./observability/grafana/alerting/alert-rules.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/",
+    );
+    expect(obs).toContain(
+      "./observability/grafana/alerting/notifications.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/",
+    );
+    expect(obs).toContain("GF_SERVER_ROOT_URL: http://localhost:${OBSERVABILITY_UI_PORT:-3001}/");
+    const receiver = service("alert-receiver");
+    expect(receiver).toMatch(/image: mendhak\/http-https-echo:\d+/);
+    expect(receiver).toContain("profiles: [observability]");
+    expect(receiver).not.toContain("ports:");
+  });
+});
+
 describe("docker scripts", () => {
   it("start and stop the whole stack with one command", () => {
     expect(pkg.scripts["docker:up"]).toBe("docker compose up -d --build --wait");
@@ -136,10 +242,10 @@ describe("docker scripts", () => {
 
   it("start and stop the observability stack on its own", () => {
     expect(pkg.scripts["observability:up"]).toBe(
-      "docker compose --profile observability up -d --wait observability",
+      "docker compose --profile observability up -d --wait observability alert-receiver",
     );
     expect(pkg.scripts["observability:down"]).toBe(
-      "docker compose --profile observability stop observability",
+      "docker compose --profile observability stop observability alert-receiver",
     );
   });
 

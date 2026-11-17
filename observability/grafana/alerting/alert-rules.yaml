@@ -1,0 +1,105 @@
+# Grafana alert rules for the `observability` Compose service
+# (grafana/otel-lgtm, Grafana 12). Mounted into the image's provisioning
+# folder (/otel-lgtm/grafana/conf/provisioning/alerting/). Both rules watch
+# the "complete a chore" journey and fire on what a person pressing Complete
+# would notice. Runbook: README "Observability" → "Alerts".
+#
+# The queries use the Prometheus datasource that the image provisions
+# (uid `prometheus`). No traffic is not an outage: with no data a rule stays OK.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: complete-a-chore
+    folder: Shared household chores
+    interval: 1m
+    rules:
+      # Any Complete attempt that ended in a server error in the last 5 min.
+      #
+      # The error series only appears with the first failure, and its first
+      # sample is already 1, which `increase()` cannot see (it needs two
+      # samples). The `unless ... offset 5m` branch counts a series that is new
+      # in the window from its own value, so even the first failure fires.
+      - uid: chores-complete-failing
+        title: Chore completions failing
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                sum(
+                (max_over_time(chores_completions_total{chore_outcome="error"}[5m])
+                unless chores_completions_total{chore_outcome="error"} offset 5m)
+                or increase(chores_completions_total{chore_outcome="error"}[5m])
+                )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "Chore completions are failing: {{ $values.A.Value | printf \"%.0f\" }} Complete attempt(s) ended in a server error in the last 5 min."
+          description: >-
+            People pressing Complete get a server error, so the chore stays
+            pending and no next occurrence is created. Outcome `error` means the
+            Server Action threw (usually the database), not a refusal such as
+            "not your chore".
+          runbook_url: https://github.com/Nalyvaiko/shared-household-chores/blob/main/README.md#alerts
+          __dashboardUid__: chores-complete-journey
+          __panelId__: "5"
+        labels:
+          severity: critical
+          journey: complete-chore
+        isPaused: false
+
+      # Complete is slow for everyone, not one unlucky click: p95 over 5 min
+      # above 2 s, held for 5 min.
+      - uid: chores-complete-slow
+        title: Chore completions slow
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              instant: true
+              range: false
+              expr: >-
+                histogram_quantile(0.95,
+                sum by (le) (rate(chores_complete_duration_milliseconds_bucket[5m])))
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [2000] }
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Chore completions are slow: p95 Complete time is {{ $values.A.Value | printf \"%.0f\" }} ms over the last 5 min (threshold 2000 ms)."
+          description: >-
+            People pressing Complete wait more than 2 seconds for the chore to
+            move to done; some will click again or give up. Usually a slow or
+            overloaded database, or lock waits on a busy household.
+          runbook_url: https://github.com/Nalyvaiko/shared-household-chores/blob/main/README.md#alerts
+          __dashboardUid__: chores-complete-journey
+          __panelId__: "6"
+        labels:
+          severity: warning
+          journey: complete-chore
+        isPaused: false
