@@ -23,7 +23,9 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "observability:up": "docker compose --profile observability up -d --wait observability",
+    "observability:down": "docker compose --profile observability stop observability"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"

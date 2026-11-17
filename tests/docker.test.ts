@@ -46,6 +46,10 @@ describe("Dockerfile", () => {
     expect(dockerfile).toMatch(/prisma@\$\{version\}/);
   });
 
+  it("sends instrumentation.ts to the build, so the image can export telemetry", () => {
+    expect(read(".dockerignore")).toMatch(/^!instrumentation\.ts\s*$/m);
+  });
+
   it("runs as a non-root user through the entrypoint on 0.0.0.0:3000", () => {
     expect(dockerfile).toMatch(/^USER node$/m);
     expect(dockerfile).toContain("HOSTNAME=0.0.0.0");
@@ -89,12 +93,54 @@ describe("docker-compose.yml", () => {
     expect(app).toContain("healthcheck:");
     expect(app).toContain("http://127.0.0.1:3000/signin");
   });
+
+  it("leaves the app's telemetry off unless OTEL_EXPORTER_OTLP_ENDPOINT is set", () => {
+    const app = service("app");
+    expect(app).toContain("OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}");
+    // A profiled service cannot be a dependency of one that always runs.
+    expect(app).not.toContain("observability");
+  });
+
+  it("runs the observability stack only under its profile, with stored data", () => {
+    const obs = service("observability");
+    expect(obs).toMatch(/image: grafana\/otel-lgtm:\d+\.\d+\.\d+/);
+    expect(obs).toContain("profiles: [observability]");
+    expect(obs).toContain('"${OBSERVABILITY_UI_PORT:-3001}:3000"');
+    expect(obs).toContain('"${OTLP_HTTP_PORT:-4318}:4318"');
+    expect(obs).toContain("observability-data:/data");
+    expect(obs).toContain("./observability/grafana/dashboards:/otel-lgtm/chores-dashboards:ro");
+    expect(compose).toMatch(/^ {2}observability-data:\s*$/m);
+  });
+
+  it("provisions a dashboard that queries the journey's metrics, traces and logs", () => {
+    const dashboard = read("observability/grafana/dashboards/complete-a-chore.json");
+    const parsed = JSON.parse(dashboard) as { panels: unknown[] };
+    expect(parsed.panels.length).toBeGreaterThan(0);
+    for (const needle of [
+      "chores_completions_total",
+      "chores_complete_duration_milliseconds_bucket",
+      "chores_rollovers_total",
+      'name=\\"chores.complete\\"',
+      'service_name=\\"shared-household-chores\\"',
+    ]) {
+      expect(dashboard).toContain(needle);
+    }
+  });
 });
 
 describe("docker scripts", () => {
   it("start and stop the whole stack with one command", () => {
     expect(pkg.scripts["docker:up"]).toBe("docker compose up -d --build --wait");
     expect(pkg.scripts["docker:down"]).toBe("docker compose down");
+  });
+
+  it("start and stop the observability stack on its own", () => {
+    expect(pkg.scripts["observability:up"]).toBe(
+      "docker compose --profile observability up -d --wait observability",
+    );
+    expect(pkg.scripts["observability:down"]).toBe(
+      "docker compose --profile observability stop observability",
+    );
   });
 
   it("leave dev:all and test:all on the db service alone", () => {

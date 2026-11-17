@@ -13,6 +13,18 @@
 #
 # Database credentials and port match DATABASE_URL in .env.example.
 # CHORES_DB_PORT overrides the database's host port (default 5432).
+#
+# Observability (opt-in, the `observability` profile): an OpenTelemetry
+# Collector with Tempo (traces), Loki (logs), Prometheus (metrics) and Grafana
+# in one container. Plain `docker compose up` does not start it.
+#
+#   npm run observability:up        # just the stack, for `npm run dev`
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://observability:4318 \
+#     docker compose --profile observability up -d --build --wait
+#                                   # the stack and the app exporting to it
+#
+# Grafana: http://localhost:3001 (OBSERVABILITY_UI_PORT); OTLP/HTTP on
+# localhost:4318 (OTLP_HTTP_PORT). See README "Observability".
 
 services:
   db:
@@ -54,6 +66,8 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-docker-compose-local-only-secret-do-not-use-in-production}
       AUTH_URL: http://localhost:${APP_PORT:-3000}
       AUTH_TRUST_HOST: "true"
+      # Telemetry stays off unless this is set (see the header comment).
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     # Healthy once the sign-in page answers 200 (migrations and seed are done
     # by then). Uses the image's own Node; no curl in the image.
     healthcheck:
@@ -67,5 +81,29 @@ services:
       start_period: 60s
       retries: 12
 
+  # Collector + Tempo + Loki + Prometheus + Grafana (profile `observability`).
+  # Grafana starts with the datasources linked (trace <-> logs by trace_id)
+  # and the "Complete a chore" dashboard from observability/grafana/.
+  # Anonymous admin access: for local use only.
+  observability:
+    image: grafana/otel-lgtm:0.11.10
+    profiles: [observability]
+    restart: unless-stopped
+    ports:
+      - "${OBSERVABILITY_UI_PORT:-3001}:3000"
+      - "${OTLP_HTTP_PORT:-4318}:4318"
+    volumes:
+      - observability-data:/data
+      - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/chores.yaml:ro
+      - ./observability/grafana/dashboards:/otel-lgtm/chores-dashboards:ro
+    # Grafana starts last, after the collector and the backends.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 24
+
 volumes:
   chores-db:
+  observability-data:
