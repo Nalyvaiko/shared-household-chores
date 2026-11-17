@@ -560,8 +560,10 @@ Then restart the `observability` service.
    in production the Neon console (status, compute suspended, connection
    limit). A recent deploy with a pending migration also shows up here: check
    the last `prisma migrate deploy` in the deploy log.
-5. **Resolve.** The alert resolves on its own 5 min after the last failed
-   attempt (the query window) and the receiver gets a `resolved` message.
+5. **Resolve.** Once completions work again, the rule returns to Normal
+   within about 5 min of the last failed attempt (the query window), and the
+   receiver gets a `resolved` message at the next group interval (up to 5 min
+   later).
 
 #### Runbook: Chore completions slow
 
