@@ -16,8 +16,9 @@
 #
 # Observability (opt-in, the `observability` profile): an OpenTelemetry
 # Collector with Tempo (traces), Loki (logs), Prometheus (metrics) and Grafana
-# in one container, plus `alert-receiver`, a webhook that logs Grafana's alert
-# notifications. Plain `docker compose up` starts neither.
+# in one container, `alert-receiver`, a webhook that logs Grafana's alert
+# notifications, and `oncall-agent`, which acts on them (README "On-call
+# agent"). Plain `docker compose up` starts none of them.
 #
 #   npm run observability:up        # just the stack, for `npm run dev`
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://observability:4318 \
@@ -97,6 +98,9 @@ services:
     environment:
       # Links in alert notifications (rule, silence, dashboard) open here.
       GF_SERVER_ROOT_URL: http://localhost:${OBSERVABILITY_UI_PORT:-3001}/
+      # The bearer token Grafana's webhook sends to oncall-agent
+      # (notifications.yaml reads it). Same default as the agent's.
+      ONCALL_AGENT_TOKEN: ${ONCALL_AGENT_TOKEN:-local-oncall-agent-token}
     volumes:
       - observability-data:/data
       - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/chores.yaml:ro
@@ -124,6 +128,49 @@ services:
       HTTP_PORT: 8080
       LOG_WITHOUT_NEWLINE: "true"
 
+  # On-call agent (profile `observability`): Grafana's contact point also posts
+  # each alert here. It diagnoses this Compose project (db, app, Loki), starts
+  # or restarts the `db` or `app` container when that is the known fix,
+  # verifies, and writes an incident report:
+  #   docker compose logs -f oncall-agent
+  #   docker compose exec oncall-agent cat /var/lib/oncall/incidents.jsonl
+  # Stock Node image with oncall/ bind-mounted: no build, no dependencies.
+  #
+  # LOCAL USE ONLY: the Docker socket gives the agent control of the Docker
+  # engine. `:ro` only stops the socket file being replaced; it does not limit
+  # the API. The agent's own code restricts itself to start/restart of `db` and
+  # `app` in this project. Not published on the host; only Grafana talks to it.
+  oncall-agent:
+    image: node:24-slim
+    profiles: [observability]
+    restart: unless-stopped
+    init: true
+    command: ["node", "/oncall/agent.mjs"]
+    environment:
+      ONCALL_AGENT_TOKEN: ${ONCALL_AGENT_TOKEN:-local-oncall-agent-token}
+      # 1 = diagnose and report only, never act.
+      ONCALL_DRY_RUN: ${ONCALL_DRY_RUN:-0}
+      ONCALL_MAX_ACTIONS: ${ONCALL_MAX_ACTIONS:-2}
+      # Where /signin is checked; http://host.docker.internal:3000 for `npm run dev`.
+      ONCALL_APP_URL: ${ONCALL_APP_URL:-http://app:3000}
+      ONCALL_GRAFANA_URL: http://observability:3000
+      ONCALL_REPORT_WEBHOOK: http://alert-receiver:8080/oncall-incidents
+      ONCALL_OTLP_ENDPOINT: http://observability:4318
+    volumes:
+      - ./oncall:/oncall:ro
+      - oncall-incidents:/var/lib/oncall
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
 volumes:
   chores-db:
   observability-data:
+  oncall-incidents:

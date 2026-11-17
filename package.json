@@ -24,8 +24,8 @@
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "observability:up": "docker compose --profile observability up -d --wait observability alert-receiver",
-    "observability:down": "docker compose --profile observability stop observability alert-receiver"
+    "observability:up": "docker compose --profile observability up -d --wait observability alert-receiver oncall-agent",
+    "observability:down": "docker compose --profile observability stop observability alert-receiver oncall-agent"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"

@@ -242,10 +242,10 @@ describe("docker scripts", () => {
 
   it("start and stop the observability stack on its own", () => {
     expect(pkg.scripts["observability:up"]).toBe(
-      "docker compose --profile observability up -d --wait observability alert-receiver",
+      "docker compose --profile observability up -d --wait observability alert-receiver oncall-agent",
     );
     expect(pkg.scripts["observability:down"]).toBe(
-      "docker compose --profile observability stop observability alert-receiver",
+      "docker compose --profile observability stop observability alert-receiver oncall-agent",
     );
   });
 

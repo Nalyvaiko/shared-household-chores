@@ -474,7 +474,7 @@ and local; plain `docker compose up`, `dev:all` and `test:all` never start it.
 With the dev server:
 
 ```bash
-npm run observability:up        # Grafana on :3001, OTLP/HTTP on :4318, alert receiver
+npm run observability:up        # Grafana on :3001, OTLP/HTTP on :4318, alert receiver, on-call agent
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev:all   # or npm run dev
 npm run observability:down      # stop it; data is kept
 ```
@@ -524,7 +524,8 @@ so the query adds the value of a series that is new in the window.
 **Where notifications go.** The `observability` profile routes every alert
 (one notification per rule, after 30 s; repeated every 4 h while firing, plus
 a resolved message) to the webhook contact point `chores-alert-webhook`, which
-posts to `alert-receiver`, a tiny echo service that prints each request body:
+posts to `alert-receiver`, a tiny echo service that prints each request body
+(and to the [on-call agent](#on-call-agent)):
 
 ```bash
 docker compose logs -f alert-receiver     # the alert JSON: status, labels, annotations, values
@@ -595,6 +596,105 @@ thresholds, `for` and labels from
 [`alert-rules.yaml`](observability/grafana/alerting/alert-rules.yaml), and
 point the default contact point at email or Slack. Any other OTLP backend
 needs its own alert on the same two series.
+
+### On-call agent
+
+`oncall-agent` (profile `observability`) is the first responder for the alerts
+above: Grafana wakes it, it diagnoses the local stack, applies a known fix from
+a short allow-list, checks that the fix worked and writes an incident report.
+It is rule-based and deterministic (fixed playbooks, no model, no external
+service) and runs from the stock `node:24-slim` image with
+[`oncall/`](oncall) bind-mounted: no build, no dependencies.
+
+**How it wakes.** The contact point `chores-alert-webhook` has a second
+webhook integration, `http://oncall-agent:8080/alerts`, with
+`Authorization: Bearer $ONCALL_AGENT_TOKEN` (the same variable on the
+`observability` and `oncall-agent` services; the default is a public,
+local-only value). Requests without that token get `401`. A resolved
+notification, or a firing alert with no playbook, is logged and answered
+`204`; a firing alert with a playbook is answered `202` and handled in the
+background, one incident per playbook at a time.
+
+#### Playbooks
+
+[`oncall/playbooks.mjs`](oncall/playbooks.mjs), matched by `alertname` and
+`journey=complete-chore`:
+
+| Alert | Diagnosis | Action (allow-list only) | Verification |
+| --- | --- | --- | --- |
+| **Chore completions failing** | State and health of every container in its own Compose project; TCP connect to `db:5432`; `GET /signin` on the app; Loki: count and `trace_id`s of `chore.complete.failed` in the last 15 min | `db` not running → **start** `db`. `db` unhealthy → **restart** `db`. `db` healthy and `app` not running → **start** `app`; `app` unhealthy → **restart** `app`. Anything else (db starting, port closed while running, everything healthy) → no action, **needs a human** | `db` healthy, `/signin` answers 200, then the Grafana rule back to Normal (polled every 15 s, up to 15 min) |
+| **Chore completions slow** | Same diagnosis | None: always **needs a human** (see the runbook above) | — |
+
+The fix for a stopped database is the same as the manual one in the runbook
+(`docker compose start db`); the agent only does it sooner. Expect the alert
+to fire about 1.5–2.5 min after the first failed Complete (1 min evaluation +
+1 min `for` + 30 s group wait), the agent to start the database within
+seconds of that, and the rule to return to Normal about 5 min after the last
+failed Complete (the query window).
+
+#### Guardrails
+
+- **Allow-list.** The only Docker calls it makes besides reads are
+  `POST /containers/{id}/start` and `/restart`, for the `db` and `app`
+  services. It never stops, removes or recreates a container, and never
+  touches volumes, images or data.
+- **Own project only.** It reads `com.docker.compose.project` from its own
+  container (or `ONCALL_COMPOSE_PROJECT`), lists containers with that label
+  filter, and refuses to act if the project is unknown.
+- **Rate limit.** At most `ONCALL_MAX_ACTIONS` (default 2) actions per alert
+  per 10 minutes; past that it reports `rate-limited` and needs a human.
+- **Dry run.** `ONCALL_DRY_RUN=1` diagnoses and reports what it would do,
+  without acting (`outcome: "dry-run"`).
+- **No customer data.** Reports hold the alert's name, rule uid, severity,
+  start time and fingerprint (never annotations or values), container
+  states, a status code, counts and trace ids. Log bodies are not read.
+
+#### Incident reports
+
+One JSON object per incident (`type: "oncall.incident"`): `incidentId`,
+`alert`, `startedAt`/`endedAt`, `diagnosis`, `decision` (`act`/`escalate` and
+a fixed reason), `actions` (with `executed` and `result`), `verification`,
+`timeline` (`woke`, `diagnosed`, `action:start:db`, `db-healthy`,
+`signin-ok`, `alert-normal`), `traceIds`, `outcome` (`remediated`,
+`escalated`, `rate-limited`, `dry-run`) and `needsHuman`. Each report goes to:
+
+```bash
+docker compose logs oncall-agent | grep oncall.incident                      # stdout, one JSON line
+docker compose exec oncall-agent cat /var/lib/oncall/incidents.jsonl          # volume oncall-incidents
+docker compose logs alert-receiver | grep oncall-incidents                     # posted for visibility
+```
+
+and to Loki as an OpenTelemetry log record (Explore → Loki,
+`{service_name="oncall-agent"}`); its `traceIds` open the failed completions
+in Tempo.
+
+Try it without waiting for a real outage: `ONCALL_DRY_RUN=1` on the
+`docker compose ... up` command, stop the database
+(`docker compose stop db`), complete a chore, and read the report; then
+`docker compose start db`.
+
+#### Add a playbook
+
+Add an entry to `PLAYBOOKS` in [`oncall/playbooks.mjs`](oncall/playbooks.mjs)
+with the labels it matches, the Grafana rule uid to verify against, and a pure
+`decide(facts)` that returns `act` with allow-listed actions or `escalate`.
+A new kind of action also needs an `ALLOWED_ACTIONS` entry and its Docker call
+in [`oncall/agent.mjs`](oncall/agent.mjs). Cover the decision in
+[`tests/oncall-agent.test.ts`](tests/oncall-agent.test.ts).
+
+#### Security and production
+
+The agent mounts `/var/run/docker.sock`, which is control of the whole Docker
+engine: `:ro` only protects the socket file, not the API. That is acceptable
+for this local, single-user stack only, where the agent is not published on
+the host and its own code limits what it does. In production, do not give a
+responder a Docker socket: call the platform's scoped API instead, e.g. a
+Vercel deploy hook (redeploy) or the Neon API (restart or resume the compute)
+with a token limited to that project, kept in a secret store, with the same
+allow-list, rate limit, dry-run switch and report. Set a real
+`ONCALL_AGENT_TOKEN` (`openssl rand -base64 33`) on both services for
+anything beyond your machine. With `npm run dev` (app on the host), set
+`ONCALL_APP_URL=http://host.docker.internal:3000`.
 
 ### Production: a hosted OTLP backend
 
@@ -714,7 +814,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm start`         | Serve the production build                              |
 | `npm run docker:up` | Build and start Postgres + the app in Docker Compose, wait until healthy — see [Run with Docker](#run-with-docker) |
 | `npm run docker:down` | Stop the Compose stack (data is kept)                 |
-| `npm run observability:up` | Start the local observability stack (Collector, Tempo, Loki, Prometheus, Grafana on :3001, alert receiver) — see [Observability](#observability) |
+| `npm run observability:up` | Start the local observability stack (Collector, Tempo, Loki, Prometheus, Grafana on :3001, alert receiver, on-call agent) — see [Observability](#observability) |
 | `npm run observability:down` | Stop the observability stack (data is kept)    |
 | `npm test`          | Run the unit tests once (Vitest; the database is mocked) |
 | `npm run test:unit` | Same as `npm test`                                      |
