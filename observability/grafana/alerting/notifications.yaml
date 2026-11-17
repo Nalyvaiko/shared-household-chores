@@ -21,6 +21,18 @@ contactPoints:
           url: http://alert-receiver:8080/grafana-alerts
           httpMethod: POST
         disableResolveMessage: false
+      # The on-call agent (README "On-call agent"): every notification of this
+      # contact point also goes here. It acts on firing alerts it has a
+      # playbook for and ignores the rest. The bearer token comes from the
+      # observability service's environment (ONCALL_AGENT_TOKEN).
+      - uid: chores-oncall-agent
+        type: webhook
+        settings:
+          url: http://oncall-agent:8080/alerts
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: $ONCALL_AGENT_TOKEN
+        disableResolveMessage: true
 
 # Replaces the default notification policy tree (local stack only): every
 # alert goes to the webhook, one notification per rule.
