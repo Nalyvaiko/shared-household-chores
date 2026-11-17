@@ -474,7 +474,7 @@ and local; plain `docker compose up`, `dev:all` and `test:all` never start it.
 With the dev server:
 
 ```bash
-npm run observability:up        # Grafana on :3001, OTLP/HTTP on :4318
+npm run observability:up        # Grafana on :3001, OTLP/HTTP on :4318, alert receiver
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev:all   # or npm run dev
 npm run observability:down      # stop it; data is kept
 ```
@@ -500,6 +500,101 @@ completions by outcome, p50/p95 duration, roll-overs, recent
 - **Trace → logs:** open a trace (the traces table, or Explore → Tempo,
   `{name="chores.complete"}`), then on a span click **Logs for this span**.
 - `OBSERVABILITY_UI_PORT` and `OTLP_HTTP_PORT` change the host ports.
+
+### Alerts
+
+Two Grafana alert rules watch the complete-a-chore journey for what a person
+would notice. They are provisioned from
+[`observability/grafana/alerting/`](observability/grafana/alerting) into the
+local stack (Grafana → Alerting → Alert rules → folder **Shared household
+chores**, group `complete-a-chore`, evaluated every minute):
+
+| Alert | Fires when | Severity | What it means for users |
+| --- | --- | --- | --- |
+| **Chore completions failing** | At least one Complete attempt ended with outcome `error` in the last 5 min (`chores_completions_total{chore_outcome="error"}`), for 1 min | `critical` | People pressing Complete get a server error: the chore stays pending and no next occurrence is created. |
+| **Chore completions slow** | p95 of `chores_complete_duration_milliseconds` over 5 min is above 2000 ms, for 5 min | `warning` | Completing a chore takes more than 2 s for many people; some click again or give up. |
+
+Both carry `journey=complete-chore`, a summary with the current value, the
+user impact, and a link back here. No traffic is not an outage: with no data a
+rule stays OK. Refusals (`not-pending`, `not-assignee`, …) are expected answers
+and never alert. The failing rule also counts the very first error after a
+restart: a brand-new error series starts at 1, which `increase()` alone misses,
+so the query adds the value of a series that is new in the window.
+
+**Where notifications go.** The `observability` profile routes every alert
+(one notification per rule, after 30 s; repeated every 4 h while firing, plus
+a resolved message) to the webhook contact point `chores-alert-webhook`, which
+posts to `alert-receiver`, a tiny echo service that prints each request body:
+
+```bash
+docker compose logs -f alert-receiver     # the alert JSON: status, labels, annotations, values
+```
+
+The payload holds the rule's labels, annotations, value and Grafana links only.
+The metrics behind it carry no customer data (see Privacy above), so neither
+does an alert. To notify people instead, edit
+[`notifications.yaml`](observability/grafana/alerting/notifications.yaml):
+change the receiver's `type` to `email` (`addresses`, plus `GF_SMTP_*`
+variables on the `observability` service) or `slack` (`url` of an incoming
+webhook), and pass secrets with `$__env{VAR}`, never as literals in the file.
+Then restart the `observability` service.
+
+#### Runbook: Chore completions failing
+
+1. **Scope.** Dashboard **Complete a chore** → *Completions by outcome*: how
+   many `error`s, since when, and whether `completed` stopped too (all down)
+   or continues (some households or chores).
+2. **Logs.** Explore → Loki:
+   `{service_name="shared-household-chores"} | event_name="chore.complete.failed"`
+   (the log's `event`; on stdout it is the JSON field `event`). Each line has
+   `trace_id` and `duration_ms` (a few ms: refused connection; seconds:
+   timeouts).
+3. **Trace.** Click the line's `trace_id`: the failed child span
+   (`chores.complete.lock`/`read`/`write`/`roll_over` or a `prisma:*` span)
+   and its `error.type` (e.g. `PrismaClientKnownRequestError`,
+   `PrismaClientInitializationError`). Messages and stack traces are not
+   exported; for those, read the app's stdout (`docker compose logs app`,
+   Vercel → Logs) around the same time.
+4. **Database.** Is Postgres up and reachable? Locally
+   `docker compose ps db` and `docker compose exec db pg_isready -U chores`;
+   in production the Neon console (status, compute suspended, connection
+   limit). A recent deploy with a pending migration also shows up here: check
+   the last `prisma migrate deploy` in the deploy log.
+5. **Resolve.** Once completions work again, the rule returns to Normal
+   within about 5 min of the last failed attempt (the query window), and the
+   receiver gets a `resolved` message at the next group interval (up to 5 min
+   later).
+
+#### Runbook: Chore completions slow
+
+1. Dashboard → *Complete duration p50 / p95 by outcome*: all outcomes slow
+   (database or host) or only `completed` (lock waits or roll-over).
+2. Explore → Tempo, `{name="chores.complete" && duration > 2s}`: which child
+   span holds the time. A long `chores.complete.lock` means people in the same
+   household completing at once; long `prisma:engine:db_query` spans mean a
+   slow database (Neon cold start, CPU, connection limit).
+3. Loki:
+   `{service_name="shared-household-chores"} | event_name="chore.complete.succeeded" | duration_ms > 2000`
+   for the slow attempts and their `trace_id`s.
+
+#### Silence an alert
+
+Grafana → Alerting → Silences → **New silence**, matcher
+`alertname = Chore completions failing` (or `journey = complete-chore` for
+both), with a duration and a comment, e.g. during planned database
+maintenance. The rule keeps evaluating; only notifications stop. Provisioned
+rules cannot be edited in the UI: change the YAML and restart the
+`observability` service.
+
+#### Production
+
+Not configured by this project. With telemetry sent to Grafana Cloud (see
+below), create the same two rules there (Alerting → Alert rules, free tier
+included) on the Grafana Cloud Prometheus datasource, copying the queries,
+thresholds, `for` and labels from
+[`alert-rules.yaml`](observability/grafana/alerting/alert-rules.yaml), and
+point the default contact point at email or Slack. Any other OTLP backend
+needs its own alert on the same two series.
 
 ### Production: a hosted OTLP backend
 
@@ -619,7 +714,7 @@ databases, provision a second empty database and set `shadowDatabaseUrl` in the
 | `npm start`         | Serve the production build                              |
 | `npm run docker:up` | Build and start Postgres + the app in Docker Compose, wait until healthy — see [Run with Docker](#run-with-docker) |
 | `npm run docker:down` | Stop the Compose stack (data is kept)                 |
-| `npm run observability:up` | Start the local observability stack (Collector, Tempo, Loki, Prometheus, Grafana on :3001) — see [Observability](#observability) |
+| `npm run observability:up` | Start the local observability stack (Collector, Tempo, Loki, Prometheus, Grafana on :3001, alert receiver) — see [Observability](#observability) |
 | `npm run observability:down` | Stop the observability stack (data is kept)    |
 | `npm test`          | Run the unit tests once (Vitest; the database is mocked) |
 | `npm run test:unit` | Same as `npm test`                                      |

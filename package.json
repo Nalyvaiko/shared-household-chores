@@ -24,8 +24,8 @@
     "db:reset": "prisma migrate reset",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "observability:up": "docker compose --profile observability up -d --wait observability",
-    "observability:down": "docker compose --profile observability stop observability"
+    "observability:up": "docker compose --profile observability up -d --wait observability alert-receiver",
+    "observability:down": "docker compose --profile observability stop observability alert-receiver"
   },
   "prisma": {
     "seed": "node prisma/seed.ts"
@@ -73,6 +73,7 @@
     "tailwindcss": "^4.3.3",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5",
-    "vitest": "^5.0.0"
+    "vitest": "^5.0.0",
+    "yaml": "^2.9.1"
   }
 }

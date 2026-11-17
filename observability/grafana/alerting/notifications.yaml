@@ -1,0 +1,33 @@
+# Where the alerts in alert-rules.yaml go, for the local `observability`
+# Compose profile: a webhook to the `alert-receiver` service, which prints each
+# notification's JSON body to its log (`docker compose logs alert-receiver`).
+#
+# To notify people instead, replace the receiver below (and keep the name, or
+# update `policies`), e.g.:
+#   type: email   settings: { addresses: "you@example.com" }   (needs GF_SMTP_* on Grafana)
+#   type: slack   settings: { url: "https://hooks.slack.com/services/..." }
+# Real URLs and addresses are secrets: use $__env{VAR} or $__file{path}, not
+# literals in this file. Production alerting lives in the hosted backend
+# (README "Alerts").
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: chores-alert-webhook
+    receivers:
+      - uid: chores-alert-webhook
+        type: webhook
+        settings:
+          url: http://alert-receiver:8080/grafana-alerts
+          httpMethod: POST
+        disableResolveMessage: false
+
+# Replaces the default notification policy tree (local stack only): every
+# alert goes to the webhook, one notification per rule.
+policies:
+  - orgId: 1
+    receiver: chores-alert-webhook
+    group_by: ["grafana_folder", "alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
